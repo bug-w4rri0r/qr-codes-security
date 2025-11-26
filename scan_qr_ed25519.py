@@ -55,9 +55,21 @@ def convert_svg_to_png(svg_path: str) -> Image.Image:
         RuntimeError: If conversion fails
     """
     # Prefer Inkscape CLI (works reliably on Windows when installed)
-    try:
-        inkscape_path = shutil.which("inkscape")
-        if inkscape_path:
+    inkscape_path = shutil.which("inkscape")
+    if not inkscape_path:
+        # Try common installation locations on Windows
+        candidates = [
+            os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Inkscape", "bin", "inkscape.exe"),
+            os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "Inkscape", "bin", "inkscape.exe"),
+            os.path.join(os.environ.get("ProgramW6432", r"C:\Program Files"), "Inkscape", "bin", "inkscape.exe"),
+        ]
+        for cand in candidates:
+            if os.path.exists(cand):
+                inkscape_path = cand
+                break
+
+    if inkscape_path:
+        try:
             print(f"    Using Inkscape at: {inkscape_path}")
             tmp_fd, tmp_png = tempfile.mkstemp(suffix=".png")
             os.close(tmp_fd)
@@ -78,8 +90,8 @@ def convert_svg_to_png(svg_path: str) -> Image.Image:
                     os.remove(tmp_png)
                 except Exception:
                     pass
-    except Exception as e:
-        print(f"    Inkscape conversion failed or not available: {e}")
+        except Exception as e:
+            print(f"    Inkscape conversion failed or not available: {e}")
 
     # Try cairosvg (best quality but requires system libraries such as cairo)
     try:
