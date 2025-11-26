@@ -136,12 +136,12 @@ def scan_qr_with_opencv(img: Image.Image) -> bytes:
 
 def load_raw_bytes(path: str) -> bytes:
     """
-    Load raw binary data from QR code image or .bin file.
+    Load raw binary data from QR code image.
     
     Supports multiple formats:
-    - .bin: Direct binary file (no QR decoding needed, fastest)
-    - .png, .jpg, etc: Raster images (OpenCV QR scanning)
-    - .svg: Vector format (auto-converted or use .bin workaround)
+    - .png, .jpg, etc: Raster images (OpenCV or pyzbar QR scanning)
+    - .svg: Vector format (requires cairosvg on Linux, or convert to PNG first)
+    - .bin: Direct binary file (use only for testing, not recommended for production)
     
     Tries multiple QR scanning backends:
     - OpenCV (preferred on Windows, no system dependencies)
@@ -151,14 +151,14 @@ def load_raw_bytes(path: str) -> bytes:
         path: Path to QR image (PNG, JPG, SVG) or .bin file
     
     Returns:
-        bytes: Raw data embedded in QR code or file contents
+        bytes: Raw data extracted from QR code
     
     Raises:
         RuntimeError: If no QR code found or file cannot be read
     """
-    # If .bin file, read directly (pre-extracted QR data)
+    # If .bin file, read directly (for testing only)
     if path.endswith(".bin"):
-        print(f"✓ Reading pre-extracted QR data from '{path}'")
+        print(f"⚠  Using .bin file (testing mode): {path}")
         return open(path, "rb").read()
     
     print(f"Loading image: {path}")
@@ -170,15 +170,13 @@ def load_raw_bytes(path: str) -> bytes:
             img = convert_svg_to_png(path)
         except RuntimeError as e:
             print(f"  ✗ {e}")
-            # Try using .bin file instead
-            bin_path = path + ".bin"
-            if os.path.exists(bin_path):
-                print(f"\n  Using .bin file instead: {bin_path}")
-                return open(bin_path, "rb").read()
             raise
     else:
         # Load regular image file
-        img = Image.open(path).convert("RGB")
+        try:
+            img = Image.open(path).convert("RGB")
+        except Exception as e:
+            raise RuntimeError(f"Cannot open image '{path}': {e}")
     
     # Try to scan QR code with available libraries
     print("  Scanning QR code...")
@@ -205,7 +203,7 @@ def load_raw_bytes(path: str) -> bytes:
         f"Install one of:\n"
         f"  - opencv-python (Windows preferred): pip install opencv-python\n"
         f"  - pyzbar (Linux preferred): pip install pyzbar\n"
-        f"Or use pre-extracted .bin file: {path}.bin"
+        f"For SVG files on Windows: convert to PNG first using Inkscape or online tools"
     )
 
 
