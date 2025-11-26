@@ -1,0 +1,5 @@
+# make git ignore for
+#iles in cert_valut
+temp
+cert_valut
+test_qr_images

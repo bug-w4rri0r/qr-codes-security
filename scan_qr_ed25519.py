@@ -26,6 +26,9 @@ import cbor2
 import zlib
 import os
 import io
+import shutil
+import subprocess
+import tempfile
 from PIL import Image
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -39,9 +42,8 @@ def convert_svg_to_png(svg_path: str) -> Image.Image:
     
     SVG is a vector format and must be rasterized to scan QR codes.
     Uses available libraries in order of preference:
-    1. svglib + reportlab (Windows/Linux, pure Python)
-    2. cairosvg (Linux, best quality but requires system cairo)
-    3. PIL/Pillow (limited SVG support)
+    1. cairosvg (Linux, requires system cairo)
+    2. PIL/Pillow (limited SVG support, may fail)
     
     Args:
         svg_path: Path to SVG file
@@ -52,55 +54,55 @@ def convert_svg_to_png(svg_path: str) -> Image.Image:
     Raises:
         RuntimeError: If conversion fails
     """
-    # Try svglib (works on Windows with reportlab)
+    # Prefer Inkscape CLI (works reliably on Windows when installed)
     try:
-        from svglib.svglib import svg2rlg
-        from reportlab.graphics import renderPM
-        import tempfile
-        import os as os_module
-        
-        drawing = svg2rlg(svg_path)
-        if drawing:
-            # Render to temporary PNG
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                tmp_path = tmp.name
-            
+        inkscape_path = shutil.which("inkscape")
+        if inkscape_path:
+            print(f"    Using Inkscape at: {inkscape_path}")
+            tmp_fd, tmp_png = tempfile.mkstemp(suffix=".png")
+            os.close(tmp_fd)
             try:
-                renderPM.drawToFile(drawing, tmp_path, fmt="PNG")
-                img = Image.open(tmp_path).convert("RGB")
-                os_module.unlink(tmp_path)  # Clean up temp file
+                # Newer Inkscape (1.0+) supports --export-type and --export-filename
+                cmd = [inkscape_path, svg_path, "--export-type=png", f"--export-filename={tmp_png}"]
+                try:
+                    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                except subprocess.CalledProcessError:
+                    # Try older Inkscape syntax
+                    cmd_old = [inkscape_path, f"--export-png={tmp_png}", svg_path]
+                    subprocess.run(cmd_old, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+                img = Image.open(tmp_png).convert("RGB")
                 return img
-            except Exception as e:
-                if os_module.path.exists(tmp_path):
-                    os_module.unlink(tmp_path)
-                raise RuntimeError(f"svglib render failed: {e}")
-    except ImportError:
-        pass  # Try next method
+            finally:
+                try:
+                    os.remove(tmp_png)
+                except Exception:
+                    pass
     except Exception as e:
-        print(f"    svglib failed: {e}")
-    
-    # Try cairosvg (best quality but requires system libraries)
+        print(f"    Inkscape conversion failed or not available: {e}")
+
+    # Try cairosvg (best quality but requires system libraries such as cairo)
     try:
         from cairosvg import svg2png
         svg_bytes = open(svg_path, "rb").read()
         png_bytes = svg2png(bytestring=svg_bytes)
         return Image.open(io.BytesIO(png_bytes)).convert("RGB")
     except (ImportError, OSError) as e:
-        pass  # Try next method
-    
+        print(f"    cairosvg not available or failed: {e}")
+
     # Try PIL direct load (limited SVG support)
     try:
         return Image.open(svg_path).convert("RGB")
     except Exception as e:
-        pass  # All methods failed
-    
+        print(f"    PIL cannot load SVG: {e}")
+
     # Fallback: inform user about workarounds
     raise RuntimeError(
         f"Cannot convert SVG '{svg_path}'.\n"
-        f"Install conversion tools:\n"
-        f"  pip install svglib reportlab  (recommended for Windows)\n"
-        f"  pip install cairosvg  (Linux, requires system cairo)\n"
-        f"Or convert SVG to PNG manually using Inkscape or online tools"
+        f"Workarounds:\n"
+        f"  1. Install Inkscape and ensure 'inkscape' is in PATH, then retry.\n"
+        f"  2. Convert SVG to PNG first using Inkscape or another tool, then scan PNG.\n"
+        f"  3. Install system Cairo and cairosvg on Linux/WSL for automatic conversion."
     )
 
 
