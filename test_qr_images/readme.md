@@ -1,0 +1,1 @@
+Path for testing QR codes
