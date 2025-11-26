@@ -166,10 +166,14 @@ def scan_qr_with_opencv(img: Image.Image) -> bytes:
         # Create detector and scan
         detector = cv2.QRCodeDetector()
         
-        # Single-QR decode (returns decoded_text, points, straight_qrcode)
+        # Single-QR decode (returns decoded_text as string, points, straight_qrcode)
+        # NOTE: OpenCV interprets QR data as UTF-8 text. For binary QR data, we must
+        # re-encode the result as latin-1 to recover the raw bytes (lossless round-trip).
         decoded_text, points, _ = detector.detectAndDecode(img_array)
         if decoded_text:
-            return decoded_text.encode() if isinstance(decoded_text, str) else decoded_text
+            # Recover raw bytes: OpenCV returned UTF-8 string, encode back as latin-1
+            raw_bytes = decoded_text.encode('latin-1')
+            return raw_bytes
         
         # Multi-QR decode (returns list of strings) - not always available in all builds
         try:
@@ -177,7 +181,7 @@ def scan_qr_with_opencv(img: Image.Image) -> bytes:
             if decoded_infos:
                 for s in decoded_infos:
                     if s:
-                        return s.encode() if isinstance(s, str) else s
+                        return s.encode('latin-1')
         except Exception:
             # Some OpenCV builds don't expose detectAndDecodeMulti; that's fine
             pass
@@ -211,7 +215,7 @@ def load_raw_bytes(path: str) -> bytes:
     """
     # If .bin file, read directly (for testing only)
     if path.endswith(".bin"):
-        print(f"⚠  Using .bin file (testing mode): {path}")
+        print(f"[WARNING] Using .bin file (testing mode): {path}")
         return open(path, "rb").read()
     
     print(f"Loading image: {path}")
