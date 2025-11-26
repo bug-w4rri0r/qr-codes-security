@@ -39,8 +39,9 @@ def convert_svg_to_png(svg_path: str) -> Image.Image:
     
     SVG is a vector format and must be rasterized to scan QR codes.
     Uses available libraries in order of preference:
-    1. cairosvg (Linux, requires system cairo)
-    2. PIL/Pillow (limited SVG support, may fail)
+    1. svglib + reportlab (Windows/Linux, pure Python)
+    2. cairosvg (Linux, best quality but requires system cairo)
+    3. PIL/Pillow (limited SVG support)
     
     Args:
         svg_path: Path to SVG file
@@ -51,6 +52,33 @@ def convert_svg_to_png(svg_path: str) -> Image.Image:
     Raises:
         RuntimeError: If conversion fails
     """
+    # Try svglib (works on Windows with reportlab)
+    try:
+        from svglib.svglib import svg2rlg
+        from reportlab.graphics import renderPM
+        import tempfile
+        import os as os_module
+        
+        drawing = svg2rlg(svg_path)
+        if drawing:
+            # Render to temporary PNG
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp_path = tmp.name
+            
+            try:
+                renderPM.drawToFile(drawing, tmp_path, fmt="PNG")
+                img = Image.open(tmp_path).convert("RGB")
+                os_module.unlink(tmp_path)  # Clean up temp file
+                return img
+            except Exception as e:
+                if os_module.path.exists(tmp_path):
+                    os_module.unlink(tmp_path)
+                raise RuntimeError(f"svglib render failed: {e}")
+    except ImportError:
+        pass  # Try next method
+    except Exception as e:
+        print(f"    svglib failed: {e}")
+    
     # Try cairosvg (best quality but requires system libraries)
     try:
         from cairosvg import svg2png
@@ -58,21 +86,21 @@ def convert_svg_to_png(svg_path: str) -> Image.Image:
         png_bytes = svg2png(bytestring=svg_bytes)
         return Image.open(io.BytesIO(png_bytes)).convert("RGB")
     except (ImportError, OSError) as e:
-        print(f"    cairosvg not available: {e}")
+        pass  # Try next method
     
     # Try PIL direct load (limited SVG support)
     try:
         return Image.open(svg_path).convert("RGB")
     except Exception as e:
-        print(f"    PIL cannot load SVG: {e}")
+        pass  # All methods failed
     
     # Fallback: inform user about workarounds
     raise RuntimeError(
         f"Cannot convert SVG '{svg_path}'.\n"
-        f"Workarounds:\n"
-        f"  1. Use .bin file (pre-extracted data): {svg_path}.bin\n"
-        f"  2. Convert SVG to PNG first, then scan PNG\n"
-        f"  3. On Linux: Install 'cairosvg' for automatic SVG conversion"
+        f"Install conversion tools:\n"
+        f"  pip install svglib reportlab  (recommended for Windows)\n"
+        f"  pip install cairosvg  (Linux, requires system cairo)\n"
+        f"Or convert SVG to PNG manually using Inkscape or online tools"
     )
 
 
