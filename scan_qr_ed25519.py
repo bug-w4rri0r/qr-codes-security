@@ -165,11 +165,22 @@ def scan_qr_with_opencv(img: Image.Image) -> bytes:
         
         # Create detector and scan
         detector = cv2.QRCodeDetector()
-        retval, decoded_info, points = detector.detectAndDecode(img_array)
         
-        if retval and decoded_info:
-            # decoded_info is string, convert to bytes
-            return decoded_info.encode() if isinstance(decoded_info, str) else decoded_info
+        # Single-QR decode (returns decoded_text, points, straight_qrcode)
+        decoded_text, points, _ = detector.detectAndDecode(img_array)
+        if decoded_text:
+            return decoded_text.encode() if isinstance(decoded_text, str) else decoded_text
+        
+        # Multi-QR decode (returns list of strings) - not always available in all builds
+        try:
+            decoded_infos, points_multi, _ = detector.detectAndDecodeMulti(img_array)
+            if decoded_infos:
+                for s in decoded_infos:
+                    if s:
+                        return s.encode() if isinstance(s, str) else s
+        except Exception:
+            # Some OpenCV builds don't expose detectAndDecodeMulti; that's fine
+            pass
         
         raise RuntimeError("No QR code detected")
     except ImportError:
