@@ -260,6 +260,12 @@ realistic max payload: ~200-987 bytes depending on error correction level."""
         action="store_true", 
         help="Disable zlib compression if raw CBOR doesn't fit in QR"
     )
+    parser.add_argument(
+        "--format",
+        choices=["svg", "png", "both"],
+        default="both",
+        help="Output format: 'svg' (vector), 'png' (raster), or 'both' (default: saves both .svg and .png)"
+    )
     args = parser.parse_args()
 
     # Step 2: Load application private key and certificate
@@ -316,9 +322,19 @@ realistic max payload: ~200-987 bytes depending on error correction level."""
     else:
         final_bytes = cbor_bytes
 
-    # Step 8: Save QR code as PNG and raw binary
+    # Step 8: Save QR code as PNG and/or SVG and raw binary
     print("Saving QR code image...")
-    qr_obj.save(args.out, scale=5, dark='black', light='white')
+    
+    # Save in requested formats
+    if args.format in ("svg", "both"):
+        qr_obj.save(args.out, scale=5, dark='black', light='white')
+        print(f"  Output SVG: {args.out}")
+    
+    if args.format in ("png", "both"):
+        # segno supports PNG output natively - use higher scale for PNG to preserve detail
+        png_path = args.out.replace(".svg", ".png") if args.out.endswith(".svg") else args.out + ".png"
+        qr_obj.save(png_path, scale=10, dark='black', light='white', kind='png')
+        print(f"  Output PNG: {png_path}")
     
     print("Saving raw embedded bytes...")
     Path(args.out + ".bin").write_bytes(final_bytes)
@@ -326,7 +342,7 @@ realistic max payload: ~200-987 bytes depending on error correction level."""
     # Print completion summary
     print("\n✓ QR code successfully created!")
     print(f"Chosen QR version: {version}, error correction level: {ec}, compression used: {used_compression}")
-    print(f"Output PNG: {args.out}")
+    print(f"Output format: {args.format}")
     print(f"Output raw bytes (exact bytes embedded in QR): {args.out}.bin (size {len(final_bytes)} bytes)")
 
 
