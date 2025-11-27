@@ -143,7 +143,7 @@ def scan_qr_with_pyzbar(img: Image.Image) -> bytes:
         raise RuntimeError(f"pyzbar not available: {e}")
 
 
-def scan_qr_with_opencv(img: Image.Image) -> bytes:
+def scan_qr_with_opencv(img: Image.Image, image_path) -> bytes:
     """
     Scan QR code using OpenCV library (preferred on Windows).
     
@@ -159,6 +159,14 @@ def scan_qr_with_opencv(img: Image.Image) -> bytes:
     try:
         import cv2
         import numpy as np
+
+        # from pyzbar.pyzbar import decode
+
+        # image = cv2.imread(image_path, 0)
+
+        # barcodes = decode(image)
+        # print(barcodes)
+
         
         # Convert PIL to numpy array
         img_array = np.array(img)
@@ -169,8 +177,10 @@ def scan_qr_with_opencv(img: Image.Image) -> bytes:
         # Single-QR decode (returns decoded_text as string, points, straight_qrcode)
         # NOTE: OpenCV interprets QR data as UTF-8 text. For binary QR data, we must
         # re-encode the result as latin-1 to recover the raw bytes (lossless round-trip).
-        decoded_text, points, _ = detector.detectAndDecode(img_array)
+        decoded_text, points, straight_qrcode = detector.detectAndDecode(img_array)
         if decoded_text:
+            print(decoded_text)
+            print(straight_qrcode)
             # Recover raw bytes: OpenCV returned UTF-8 string, encode back as latin-1
             raw_bytes = decoded_text.encode('latin-1')
             return raw_bytes
@@ -240,7 +250,7 @@ def load_raw_bytes(path: str) -> bytes:
     
     # Try OpenCV first (works better on Windows, no system dependencies)
     try:
-        data = scan_qr_with_opencv(img)
+        data = scan_qr_with_opencv(img, path)
         print("  ✓ QR decoded with OpenCV")
         return data
     except RuntimeError as e:
@@ -492,15 +502,19 @@ def main():
     raw = load_raw_bytes(args.file)
     
     if args.dump:
-        print(f"Raw bytes from QR ({len(raw)} bytes):", raw[:100], "...")
+        print(f"Raw bytes from QR ({len(raw)} bytes): [", raw, "] end.")
     
     if args.debug:
-        print_hex_dump("Raw QR Data", raw, max_lines=10)
+        print("\n[DEBUG MODE ENABLED]")
+        print_hex_dump("Raw QR Data (as extracted)", raw, max_lines=10)
 
     # Step 3: Parse CBOR (handle optional compression)
     print("Parsing CBOR data...")
     parsed, compressed = try_parse_cbor(raw)
     print(f"✓ CBOR parsed successfully (compression used: {compressed})")
+    
+    if args.debug:
+        print(f"[DEBUG] Compression detected: {compressed}")
 
     # Step 4: Extract components from CBOR structure
     payload = parsed["payload"]
@@ -514,10 +528,16 @@ def main():
     print(f"  Certificate signature: {len(cert_sig)} bytes (Ed25519)")
     
     if args.debug:
-        print_debug_info("Payload", payload)
+        print_debug_info("Payload (extracted from QR)", payload)
         print_debug_info("Payload Signature", payload_sig)
         print_debug_info("Certificate Signature", cert_sig)
         print(f"\nCertificate Map: {cert_map}")
+        
+        # Also show the CBOR bytes before parsing
+        if compressed:
+            print_debug_info("CBOR Data (after decompression)", parsed)
+        else:
+            print_debug_info("CBOR Data (raw)", raw)
 
     # Step 5: Load trusted roots
     print(f"\nLoading trusted roots from '{args.trusted_dir}'...")
@@ -531,6 +551,10 @@ def main():
         print(f"✓ {trust_msg}")
     else:
         print(f"✗ {trust_msg}")
+    
+    if args.debug:
+        cert_cbor = cbor2.dumps(cert_map)
+        print_debug_info("Certificate (as CBOR)", cert_cbor)
 
     # Step 7: Check certificate validity dates
     now = datetime.now(timezone.utc).date()
@@ -544,12 +568,24 @@ def main():
     print("\nVerifying payload signature...")
     try:
         app_pub = load_pub_from_cert_map(cert_map)
+        
+        if args.debug:
+            print_debug_info("Public Key (from certificate)", app_pub.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            ))
+        
         app_pub.verify(payload_sig, payload)
         payload_ok = True
         print("✓ Payload signature: VALID")
     except Exception as e:
         payload_ok = False
         print(f"✗ Payload signature: INVALID ({e})")
+        
+        if args.debug:
+            print(f"[DEBUG] Signature verification failed:")
+            print(f"  Payload size: {len(payload)} bytes")
+            print(f"  Signature size: {len(payload_sig)} bytes")
 
     # Step 9: Display payload (with security check)
     print("\n" + "="*60)

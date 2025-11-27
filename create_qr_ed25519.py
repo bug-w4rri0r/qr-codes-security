@@ -197,6 +197,25 @@ def find_max_payload_size(app_priv, cert_map, cert_sig, limit, max_version=MAX_Q
     return best
 
 
+def print_debug(label: str, data: bytes, max_lines: int = 5):
+    """Print debug information (hex dump and size)"""
+    print(f"\n[DEBUG] {label}")
+    print(f"  Size: {len(data)} bytes")
+    print(f"  Hex (first 100 bytes): {data[:100].hex()}")
+    if len(data) > 100:
+        print(f"  ... total {len(data)} bytes")
+    
+    # Hex dump
+    for i, chunk_start in enumerate(range(0, len(data), 16)):
+        if i >= max_lines:
+            break
+        chunk_end = min(chunk_start + 16, len(data))
+        chunk = data[chunk_start:chunk_end]
+        hex_str = " ".join(f"{b:02x}" for b in chunk)
+        ascii_str = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        print(f"    {chunk_start:04x}  {hex_str:<48}  {ascii_str}")
+
+
 def main():
     """
     Main entry point for QR code generation.
@@ -266,6 +285,11 @@ realistic max payload: ~200-987 bytes depending on error correction level."""
         default="both",
         help="Output format: 'svg' (vector), 'png' (raster), or 'both' (default: saves both .svg and .png)"
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode: print detailed hex dumps at every step"
+    )
     args = parser.parse_args()
 
     # Step 2: Load application private key and certificate
@@ -273,6 +297,11 @@ realistic max payload: ~200-987 bytes depending on error correction level."""
     app_priv = load_priv(Path(args.app_priv))
     print("Loading COSE certificate...")
     cert_map, cert_sig = load_cbor_cert(Path(args.cert_cbor))
+    
+    if args.debug:
+        print("\n[DEBUG MODE ENABLED]")
+        print_debug("Certificate Map (CBOR)", cbor2.dumps(cert_map))
+        print_debug("Certificate Signature", cert_sig)
 
     # Step 3: Calculate maximum payload size using binary search
     print("\nCalculating the maximum payload length (bytes) that fits into some QR version <= 26 ...")
@@ -290,6 +319,8 @@ realistic max payload: ~200-987 bytes depending on error correction level."""
 
     # Step 5: Validate payload size
     print(f"Actual payload size: {len(payload_bytes)} bytes")
+    if args.debug:
+        print_debug("Payload (input)", payload_bytes)
     if len(payload_bytes) > args.max_payload_limit:
         print(f"Warning: actual payload length {len(payload_bytes)} exceeds --max-payload-limit {args.max_payload_limit}. The earlier search may not be accurate.")
     if len(payload_bytes) > max_payload:
@@ -316,11 +347,22 @@ realistic max payload: ~200-987 bytes depending on error correction level."""
     }
     cbor_bytes = cbor2.dumps(container)
     
+    if args.debug:
+        print_debug("Payload Signature", payload_sig)
+        print_debug("Container (CBOR uncompressed)", cbor_bytes)
+    
     # Apply compression if it was used to fit in QR
     if used_compression:
         final_bytes = zlib.compress(cbor_bytes, level=9)
     else:
         final_bytes = cbor_bytes
+
+    if args.debug:
+        print_debug("Final bytes (after optional compression)", final_bytes)
+        print(f"\n[DEBUG] Compression used: {used_compression}")
+        print(f"[DEBUG] CBOR size: {len(cbor_bytes)} bytes")
+        print(f"[DEBUG] Final size: {len(final_bytes)} bytes")
+        print(f"[DEBUG] Compression ratio: {100 * len(final_bytes) / len(cbor_bytes):.1f}%")
 
     # Step 8: Save QR code as PNG and/or SVG and raw binary
     print("Saving QR code image...")
