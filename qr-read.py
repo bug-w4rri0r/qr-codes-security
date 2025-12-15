@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-Ultimate Secure QR Code Reader (v3.1 - Full Debug & English Comments)
+Ultimate Secure QR Code Reader (v3.3 - Full Debug, robust comments & Summary)
 
 Description:
   This script scans a QR code containing Ed25519-signed data, verifies
   the trust chain against a provided Root CA public key, and displays
-  the content only if authentic (or if the user explicitly overrides).
+  the content only if authentic. It concludes with a detailed technical
+  summary table matching the generator's output style.
 
 Key Features:
   1. Full Debug Mode: View raw Base64, Hex dumps, and CBOR structures.
   2. Security Verification: Checks Certificate signature, Expiration dates,
      and Payload integrity.
-  3. Safe Failover: If verification fails, it asks the user before showing data.
+  3. Technical Summary: Displays QR Version, Compression stats, and Data sizes.
+  4. Safety: Prompts user before displaying untrusted data.
 """
 
 import argparse
@@ -38,7 +40,7 @@ class Color:
 def print_debug(label, data, is_text=False):
     """
     Helper function for verbose debug printing.
-    v3.1 Update: NO TRUNCATION. Shows every byte.
+    Shows FULL data without truncation (byte-perfect debugging).
     """
     print(f"\n{Color.CYAN}[DEBUG] --- {label} ---{Color.RESET}")
     if data is None:
@@ -176,7 +178,40 @@ def verify_trust_chain(container: dict, root_keys: list, debug: bool = False) ->
     print(f"   {Color.GREEN}[OK] Data is AUTHENTIC and UNMODIFIED.{Color.RESET}")
     return True, "Secure"
 
+def estimate_qr_version(straight_qrcode):
+    """
+    Attempts to calculate QR Version from the rectified image returned by OpenCV.
+    Formula: Version = (Modules - 21) / 4 + 1
+    """
+    if straight_qrcode is None:
+        return "N/A"
+    
+    try:
+        # OpenCV returns a rectified square image.
+        # Ideally, 1 pixel = 1 module.
+        width = straight_qrcode.shape[0]
+        
+        # Check if width matches a valid QR dimension (21, 25, 29, ..., 177)
+        # Dimension = 21 + (V-1)*4
+        if (width - 21) % 4 == 0:
+            v = (width - 21) // 4 + 1
+            if 1 <= v <= 40:
+                return str(v)
+        
+        # If OpenCV upscaled the image, this simple check fails.
+        return "Unknown (Resampled)"
+    except:
+        return "N/A"
+
 def scan_qr(image_path: Path, root_keys_path: Path, debug: bool = False):
+    # Stats container for the final summary
+    stats = {
+        "compressed": False,
+        "raw_size": 0,    # Size of CBOR bytes (potentially compressed)
+        "final_size": 0,  # Size of actual payload
+        "version": "N/A"
+    }
+
     # 1. Load Trusted Root Keys
     try:
         root_keys = load_root_keys(root_keys_path)
@@ -198,7 +233,8 @@ def scan_qr(image_path: Path, root_keys_path: Path, debug: bool = False):
             return
             
         detector = cv2.QRCodeDetector()
-        decoded_text, _, _ = detector.detectAndDecode(img)
+        # detectAndDecode returns: decoded_info, points, straight_qrcode (rectified image)
+        decoded_text, points, straight_qrcode = detector.detectAndDecode(img)
     except Exception as e:
         print(f"[ERROR] OpenCV error: {e}")
         return
@@ -207,6 +243,9 @@ def scan_qr(image_path: Path, root_keys_path: Path, debug: bool = False):
         print(f"{Color.RED}[ERROR] No QR code detected.{Color.RESET}")
         return
 
+    # Estimate Version logic
+    stats["version"] = estimate_qr_version(straight_qrcode)
+
     if debug:
         print_debug("Step 1: Raw QR Text (Base64)", decoded_text, is_text=True)
 
@@ -214,22 +253,25 @@ def scan_qr(image_path: Path, root_keys_path: Path, debug: bool = False):
     try:
         # A. Base64 Decode
         raw_bytes = base64.b64decode(decoded_text)
+        stats["raw_size"] = len(raw_bytes) # Store compressed size for stats
+        
         if debug:
             print_debug("Step 2: Decoded Base64 (Binary)", raw_bytes)
         
         # B. ZLIB Decompress
         try:
             cbor_data = zlib.decompress(raw_bytes)
+            stats["compressed"] = True
             print("Compression:       ZLIB (Decompressed)")
+            if debug: print_debug("Step 3: ZLIB Decompressed", cbor_data)
         except zlib.error:
             cbor_data = raw_bytes
+            stats["compressed"] = False
             print("Compression:       NONE")
             
-        if debug:
-            print_debug("Step 3: CBOR Data (Ready to parse)", cbor_data)
-
         # C. CBOR Load
         container = cbor2.loads(cbor_data)
+        stats["final_size"] = len(container.get('payload', b''))
         print("Format:            VALID CBOR")
         
     except Exception as e:
@@ -270,6 +312,20 @@ def scan_qr(image_path: Path, root_keys_path: Path, debug: bool = False):
 
     if 'sub' in container.get('cert', {}):
         print(f"Issued to (Subject): {container['cert']['sub']}")
+
+    # 6. SUMMARY TABLE
+    print("\n" + "="*65)
+    print(" READING SUMMARY")
+    print("="*65)
+    print(f" Input File:        {image_path.name}")
+    print("-" * 65)
+    print(f" QR Version:        {stats['version']} (Estimated)")
+    print(f" Error Correction:  N/A (Hidden by Reader)")
+    print(f" Encoding:          Base64")
+    print(f" Compression:       {'YES (ZLIB)' if stats['compressed'] else 'NO'}")
+    print(f" Payload Size:      {stats['final_size']} bytes (Decompressed)")
+    print(f" Structure Size:    {stats['raw_size']} bytes (Compressed/CBOR)")
+    print("="*65)
 
 def main():
     parser = argparse.ArgumentParser(description="Secure QR Code Reader (Ed25519 + CBOR)")
