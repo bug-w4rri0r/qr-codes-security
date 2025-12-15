@@ -1,209 +1,138 @@
 #!/usr/bin/env python3
 """
-Secure QR Code Reader & Verifier (Ed25519)
+Secure QR Code Reader (Base64 Safe Version)
 
-This script performs the following steps:
-1. Scans a QR code image using OpenCV.
-2. Recovers raw binary data (fixing OpenCV's UTF-8 encoding issue).
-3. Detects and handles Zlib compression.
-4. Parses the CBOR structure.
-5. Verifies the cryptographic trust chain:
-   - Step A: Verifies the Certificate was signed by the Trusted Root.
-   - Step B: Verifies the Payload was signed by the Certificate's key.
+Logic:
+1. Uses Standard OpenCV (cv2) to read the QR code as a string.
+2. Since the QR contains Base64 text, OpenCV will NOT truncate it.
+3. We decode Base64 -> Binary -> Decompress -> Verify.
 """
 
 import argparse
 import sys
 import zlib
-import cv2
+import base64
+import cv2  # Standard OpenCV
 from pathlib import Path
 
-# External libraries for data structure and cryptography
-# pip install cbor2 cryptography opencv-python
+# Dependencies: pip install cbor2 cryptography opencv-python
 import cbor2
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
 def load_root_public_key(path: Path):
-    """
-    Loads the trusted Root Public Key from a PEM file.
-    This key is the "Anchor of Trust".
-    """
     if not path.exists():
         raise FileNotFoundError(f"Root key file not found: {path}")
-    
     with open(path, "rb") as f:
-        # Load PEM public key
         return serialization.load_pem_public_key(f.read())
 
-def recover_raw_bytes(decoded_text: str) -> bytes:
-    """
-    CRITICAL FIX for OpenCV:
-    OpenCV's QRCodeDetector interprets binary QR data as UTF-8 text, 
-    which corrupts non-text bytes (like CBOR or compressed data).
-    
-    We treat the decoded string as 'latin-1' to map it back 
-    1-to-1 to the original raw bytes.
-    """
-    return decoded_text.encode('latin-1')
-
 def verify_trust_chain(container: dict, root_pub_key) -> bool:
-    """
-    Performs the cryptographic checks.
-    
-    Args:
-        container (dict): The unpacked CBOR data containing payload, cert, and signatures.
-        root_pub_key: The trusted root public key object.
-        
-    Returns:
-        bool: True if valid, False if verification fails.
-    """
     print("\n--- STARTING SECURITY VERIFICATION ---")
 
-    # 1. Extract components from the container
     try:
-        payload = container['payload']          # The actual user data
-        payload_sig = container['payload_sig']  # Signature of the data
-        cert_map = container['cert']            # The certificate (App Public Key + Metadata)
-        cert_sig = container['cert_sig']        # Signature of the certificate (by Root)
+        payload = container['payload']
+        payload_sig = container['payload_sig']
+        cert_map = container['cert']
+        cert_sig = container['cert_sig']
     except KeyError as e:
         print(f"[ERROR] Invalid QR structure. Missing field: {e}")
         return False
 
-    # 2. Verify Step A: Is the Certificate signed by our Trusted Root?
-    print(f"1. Verifying Certificate integrity (Signed by Root?)...")
+    # Verify Cert
+    print(f"1. Verifying Certificate (Signed by Root?)...")
     try:
-        # We must verify the bytes of the certificate map exactly as they were signed.
-        # We re-serialize the map to CBOR to get those bytes.
-        cert_bytes_to_verify = cbor2.dumps(cert_map)
-        
-        # Verify: (Signature, Data) using Root Key
-        root_pub_key.verify(cert_sig, cert_bytes_to_verify)
-        print("   [OK] Certificate is VALID and TRUSTED.")
+        cert_bytes = cbor2.dumps(cert_map)
+        root_pub_key.verify(cert_sig, cert_bytes)
+        print("   [OK] Certificate is TRUSTED.")
     except Exception as e:
-        print(f"   [FAIL] Certificate verification failed! The Root signature does not match. {e}")
+        print(f"   [FAIL] Certificate Invalid: {e}")
         return False
 
-    # 3. Extract the App Public Key from inside the Certificate
+    # Extract App Key
     try:
-        # The key should be in the 'pub' field of the certificate map
         app_pub_bytes = cert_map['pub']
-        # Convert raw bytes back to an Ed25519PublicKey object
         app_pub_key = ed25519.Ed25519PublicKey.from_public_bytes(app_pub_bytes)
-    except Exception as e:
-        print(f"   [FAIL] Could not extract Public Key from Certificate: {e}")
+    except Exception:
+        print("   [FAIL] Bad Key in Cert")
         return False
 
-    # 4. Verify Step B: Is the Payload signed by the App Certificate?
-    print(f"2. Verifying Payload integrity (Signed by App Key?)...")
+    # Verify Payload
+    print(f"2. Verifying Payload (Signed by App?)...")
     try:
-        # Verify: (Signature, Payload) using App Key (derived from Cert)
         app_pub_key.verify(payload_sig, payload)
-        print("   [OK] Payload is AUTHENTIC and UNMODIFIED.")
+        print("   [OK] Payload is AUTHENTIC.")
     except Exception as e:
-        print(f"   [FAIL] Payload signature invalid! Data may have been tampered with. {e}")
+        print(f"   [FAIL] Signature Invalid: {e}")
         return False
 
     return True
 
 def scan_qr(image_path: Path, root_key_path: Path):
-    """
-    Main workflow: Load Image -> Decode -> Decompress -> Parse -> Verify.
-    """
-    # --- Step 1: File Checks ---
     if not image_path.exists():
-        print(f"Error: Image file not found: {image_path}")
-        sys.exit(1)
-
-    # --- Step 2: OpenCV Scanning ---
-    # Load image using OpenCV
-    img = cv2.imread(str(image_path))
-    if img is None:
-        print(f"Error: Failed to load image (unsupported format?): {image_path}")
+        print(f"Error: Image not found: {image_path}")
         sys.exit(1)
 
     print(f"Scanning image: {image_path.name} ...")
-    detector = cv2.QRCodeDetector()
     
-    # detectAndDecode returns: (decoded_text, points, straight_qrcode)
-    decoded_text, points, _ = detector.detectAndDecode(img)
-
-    if points is None:
-        print("[ERROR] No QR code detected in the image.")
-        return
+    # --- OPENCV READING ---
+    img = cv2.imread(str(image_path))
+    detector = cv2.QRCodeDetector()
+    decoded_text, _, _ = detector.detectAndDecode(img)
 
     if not decoded_text:
-        print("[ERROR] QR code detected, but failed to decode content.")
+        print("[ERROR] No QR code detected or decode failed.")
         return
 
-    # --- Step 3: Data Recovery & Decompression ---
-    try:
-        # Fix OpenCV encoding to get raw bytes
-        raw_bytes = recover_raw_bytes(decoded_text)
-        print(f"Raw data size: {len(raw_bytes)} bytes")
+    print(f"Read QR String (Length: {len(decoded_text)})")
 
-        # Attempt Zlib Decompression
+    # --- DECODE BASE64 ---
+    try:
+        # This is the magic step. Convert Safe Text -> Raw Binary
+        raw_bytes = base64.b64decode(decoded_text)
+        print(f"Decoded Base64 -> Binary ({len(raw_bytes)} bytes)")
+    except Exception as e:
+        print(f"[ERROR] Content is not valid Base64! {e}")
+        return
+
+    # --- DECOMPRESS & PARSE ---
+    try:
         try:
             cbor_data = zlib.decompress(raw_bytes)
-            print("Compression:   DETECTED (Zlib Inflated)")
+            print("Compression:      DETECTED (Zlib)")
         except zlib.error:
-            # If error, assume data was not compressed
             cbor_data = raw_bytes
-            print("Compression:   NONE (Raw Data)")
+            print("Compression:      NONE")
 
-        # Parse CBOR
         container = cbor2.loads(cbor_data)
-        print("Format:        VALID CBOR CONTAINER")
+        print("Format:           VALID CBOR")
 
     except Exception as e:
-        print("-" * 40)
-        print("[FATAL ERROR] Failed to process QR data.")
-        print(f"Details: {e}")
-        print("Ensure this QR was generated by the secure generator script.")
-        print("-" * 40)
+        print(f"[FATAL ERROR] Data corrupt: {e}")
         return
 
-    # --- Step 4: Cryptographic Verification ---
+    # --- VERIFY ---
     try:
         root_key = load_root_public_key(root_key_path)
-        is_secure = verify_trust_chain(container, root_key)
+        if verify_trust_chain(container, root_key):
+            print("-" * 50)
+            print("✅ SUCCESS: VERIFIED SECURE DATA")
+            print("-" * 50)
+            payload = container['payload']
+            try:
+                print("PAYLOAD CONTENT:")
+                print(payload.decode('utf-8'))
+            except:
+                print("PAYLOAD (BINARY):", payload.hex())
+        else:
+            print("❌ VERIFICATION FAILED")
     except Exception as e:
-        print(f"[ERROR] Key loading failed: {e}")
-        return
-
-    # --- Step 5: Final Output ---
-    print("-" * 50)
-    if is_secure:
-        print("✅ SUCCESS: VERIFIED SECURE DATA")
-        print("-" * 50)
-        
-        payload = container['payload']
-        
-        # Try to print payload as text, otherwise hex
-        try:
-            print("PAYLOAD CONTENT:")
-            print(payload.decode('utf-8'))
-        except UnicodeDecodeError:
-            print("PAYLOAD CONTENT (BINARY):")
-            print(payload.hex())
-            
-        # Optional: Print info about who issued this data
-        cert = container.get('cert', {})
-        if 'iss' in cert: print(f"\nIssuer:  {cert['iss']}")
-        if 'sub' in cert: print(f"Subject: {cert['sub']}")
-        
-    else:
-        print("❌ WARNING: VERIFICATION FAILED")
-        print("The data cannot be trusted. It may be forged or the certificate is invalid.")
-    print("-" * 50)
+        print(f"Verification Error: {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Read and Verify Ed25519 Signed QR Codes")
-    parser.add_argument("--image", required=True, help="Path to the PNG image file")
-    parser.add_argument("--root-pub", required=True, help="Path to the Root Public Key (PEM)")
-    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--image", required=True)
+    parser.add_argument("--root-pub", required=True)
     args = parser.parse_args()
-    
     scan_qr(Path(args.image), Path(args.root_pub))
 
 if __name__ == "__main__":
