@@ -5,6 +5,7 @@ test_qr_images/
 qr_img/
 
 # --- Rozszerzenia plików do ignorowania ---
+*.vscode
 *.keys
 *.key
 *.pem
