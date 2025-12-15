@@ -13,7 +13,7 @@ qr_img/
 *.png
 *.SVG
 *.txt
-*.cbor.
+*.cbor
 
 # Opcjonalnie: ignoruj systemowe pliki (np. Mac/Windows)
 .DS_Store
