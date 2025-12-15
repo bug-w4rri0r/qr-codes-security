@@ -5,15 +5,15 @@ test_qr_images/
 qr_img/
 
 # --- Rozszerzenia plików do ignorowania ---
-<<<<<<< HEAD
 *.vscode
-=======
->>>>>>> ceb1530496f0afa143019c72715e3865e2601902
 *.keys
 *.key
 *.pem
 *.bin
 *.png
+*.SVG
+*.txt
+*.cbor
 
 # Opcjonalnie: ignoruj systemowe pliki (np. Mac/Windows)
 .DS_Store
