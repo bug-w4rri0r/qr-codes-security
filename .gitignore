@@ -1,5 +1,16 @@
-# make git ignore for
-#iles in cert_valut
-temp
-cert_valut
-test_qr_images
+# --- Foldery tymczasowe i wyjściowe ---
+temp/
+cert_valut/
+test_qr_images/
+qr_img/
+
+# --- Rozszerzenia plików do ignorowania ---
+*.keys
+*.key
+*.pem
+*.bin
+*.png
+
+# Opcjonalnie: ignoruj systemowe pliki (np. Mac/Windows)
+.DS_Store
+Thumbs.db
