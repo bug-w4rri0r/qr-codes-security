@@ -11,6 +11,9 @@ qr_img/
 *.pem
 *.bin
 *.png
+*.SVG
+*.txt
+*.cbor.
 
 # Opcjonalnie: ignoruj systemowe pliki (np. Mac/Windows)
 .DS_Store
