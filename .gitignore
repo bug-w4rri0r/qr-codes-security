@@ -1,0 +1,17 @@
+# --- Foldery tymczasowe i wyjściowe ---
+temp/
+cert_valut/
+test_qr_images/
+qr_img/
+
+# --- Rozszerzenia plików do ignorowania ---
+*.vscode
+*.keys
+*.key
+*.pem
+*.bin
+*.png
+
+# Opcjonalnie: ignoruj systemowe pliki (np. Mac/Windows)
+.DS_Store
+Thumbs.db
