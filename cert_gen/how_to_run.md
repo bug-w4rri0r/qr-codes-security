@@ -1,5 +1,9 @@
 # I.
 python3 gen_ed_keys.py --gen-app --out-dir .
+
+# python3 gen_ed_keys.py --root-name "firma_root-demo" --root-only --out-dir .\demo-test\ 
+# python3 gen_ed_keys.py --root-only --out-dir .
+# python3 gen_ed_keys.py --root-name "PWr-Campus" --root-only --out-dir .\demo-test\
 # teraz masz root_priv.pem, root_pub.pem, app_priv.pem, app_pub.pem
 
 
