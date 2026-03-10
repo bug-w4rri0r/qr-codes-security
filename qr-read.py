@@ -108,14 +108,14 @@ def check_dates(cert_map: dict) -> bool:
     if 'nbf' in cert_map:
         nbf = parse_to_timestamp(cert_map['nbf'])
         if nbf and now < nbf:
-            print(f"   {Color.RED}[FAIL] Certificate is NOT YET valid (starts {nbf}).{Color.RESET}")
+            print(f"   {Color.RED}[FAIL] Certificate is NOT YET valid (starts {cert_map['nbf']}).{Color.RESET}")
             return False
 
     # Check "Expiration"
     if 'exp' in cert_map:
         exp = parse_to_timestamp(cert_map['exp'])
         if exp and now > exp:
-            print(f"   {Color.RED}[FAIL] Certificate has EXPIRED (ended {exp}).{Color.RESET}")
+            print(f"   {Color.RED}[FAIL] Certificate has EXPIRED (ended {cert_map['exp']}).{Color.RESET}")
             return False
 
     return True
@@ -136,6 +136,18 @@ def verify_trust_chain(container: dict, root_keys: list, debug: bool = False) ->
         cert_sig = container['cert_sig']
     except KeyError as e:
         return False, f"Corrupt data structure. Missing field: {e}"
+    
+    # --- DODANE: Szczegółowe informacje o certyfikacie i ścieżce autoryzacji ---
+    print(f"\n{Color.YELLOW}[Certificate & Authorization Details]{Color.RESET}")
+    print(f"   Issuer (iss):          {cert_map.get('iss', 'N/A (Unknown)')}")
+    print(f"   Subject (sub):         {cert_map.get('sub', 'N/A (Unknown)')}")
+    print(f"   Valid From (nbf):      {cert_map.get('nbf', 'N/A (No start date)')}")
+    print(f"   Expires (exp):         {cert_map.get('exp', 'N/A (No expiration)')}")
+    print(f"   -----------------------")
+    print(f"   Payload Size:          {len(payload)} bytes")
+    print(f"   Payload Signature:     {len(payload_sig)} bytes (Ed25519)")
+    print(f"   Certificate Signature: {len(cert_sig)} bytes (Ed25519)\n")
+    # -------------------------------------------------------------------------
     
     if debug:
         print_debug("Payload to Verify", payload)

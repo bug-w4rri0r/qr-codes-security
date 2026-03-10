@@ -3,6 +3,7 @@ temp/
 cert_valut/
 test_qr_images/
 qr_img/
+documentation/
 
 # --- Rozszerzenia plików do ignorowania ---
 *.vscode
