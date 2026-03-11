@@ -94,6 +94,11 @@ def main():
         help="Path to root CA private key (e.g., ../certs_vault/root_priv.pem)"
     )
     parser.add_argument(
+        "--iss", 
+        default="root", 
+        help="Certificate issuer name (e.g., 'PWr-Campus' or 'MyRootCA')"
+    )
+    parser.add_argument(
         "--sub", 
         required=True, 
         help="Certificate subject (identifier, e.g., 'app-001' or 'mobile-app')"
@@ -131,8 +136,8 @@ def main():
     # Step 3: Create certificate structure with metadata
     print("\nBuilding certificate structure...")
     cert = {
-        "iss": "root",              # Issuer: root CA (can be set to root fingerprint or CN)
-        "sub": args.sub,            # Subject: application identifier
+        "iss": args.iss,            # Issuer: Root CA name from CLI argument
+        "sub": args.sub,            # Subject: Application identifier
         "alg": "Ed25519",           # Algorithm: Ed25519 signature scheme
         "pub": pub_bytes,           # Public key bytes
     }
@@ -144,7 +149,7 @@ def main():
         cert["exp"] = args.not_after   # Expiration date
 
     # Step 4: Encode certificate and sign it
-    print("Signing certificate with root CA private key...")
+    print(f"Signing certificate with issuer '{args.iss}'...")
     # CBOR-encode the certificate (without signature)
     cert_no_sig = cbor2.dumps(cert)
     
@@ -152,9 +157,11 @@ def main():
     sig = root.sign(cert_no_sig)
 
     # Step 5: Wrap certificate and signature in CBOR envelope
+    # NOTE: In your QR creation/reading scripts, the keys expected are often "cert" and "cert_sig".
+    # I have updated "sig" to "cert_sig" here to maintain compatibility with your qr-read.py
     envelope = {
         "cert": cert,  # Certificate object
-        "sig": sig     # Digital signature (64 bytes for Ed25519)
+        "cert_sig": sig      # Digital signature (64 bytes for Ed25519)
     }
 
     # Step 6: Save the signed certificate
@@ -164,7 +171,12 @@ def main():
 
     print("\n✓ Certificate generated successfully!")
     print(f"  File: {args.out}")
+    print(f"  Issuer: {args.iss}")
     print(f"  Subject: {args.sub}")
+    if args.not_before:
+        print(f"  Valid From (nbf): {args.not_before}")
+    if args.not_after:
+        print(f"  Expires (exp): {args.not_after}")
     print(f"  Key type: {ktype}")
 
 

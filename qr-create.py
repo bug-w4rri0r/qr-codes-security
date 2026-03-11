@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-ED25519 Signed QR Code Generator (v3.1 - Full Debug & English Comments)
+ED25519 Signed QR Code Generator (v3.2 - Dual Mode: Root-Only or Root+App)
 
 Description:
   This script generates a secure QR code containing data signed digitally
   with an Ed25519 private key.
   
 Key Features:
-  1. Signs the data (Payload) with the App's private key.
-  2. Packages data and certificate into a CBOR structure.
+  1. Supports two PKI modes:
+     - Root Only: Signs payload directly with Root Private Key.
+     - Root + App: Signs payload with App Private Key and embeds App's CBOR Cert.
+  2. Packages data and certificate (if applicable) into a CBOR structure.
   3. Compresses data (ZLIB) to save space.
   4. Encodes result to Base64 (safe for QR readers/OpenCV).
   5. Generates the QR code, respecting the Version limit (Max 26).
@@ -36,7 +38,7 @@ ERROR_LEVELS = ("L", "M", "Q", "H")
 def print_debug(label, data, is_text=False):
     """
     Helper function for verbose debug printing.
-    In this version, it DOES NOT TRUNCATE data. It shows every byte.
+    Shows every byte, does not truncate data.
     """
     print(f"\n[DEBUG] --- {label} ---")
     if data is None:
@@ -116,22 +118,27 @@ def find_optimal_qr(data_content: str, max_version=MAX_QR_VERSION):
             
     return best_qr, best_ec
 
-def fits_within_limit(payload: bytes, app_priv, cert_map, cert_sig, max_ver, try_compress, debug=False):
+def fits_within_limit(payload: bytes, signing_key, cert_map, cert_sig, max_ver, try_compress, debug=False):
     """
     Core Logic: Sign -> Pack -> Compress -> Base64 -> Fit QR.
+    Handles both Root-Only (cert is None) and Root+App modes.
     Returns tuple: (success, is_compressed, qr_object, raw_data, ec_level)
     """
     
     # STEP 1: Sign the Payload
     # This guarantees the message content hasn't been altered.
-    payload_sig = app_priv.sign(payload)
+    payload_sig = signing_key.sign(payload)
     
+    # Build container dynamically based on mode
     container = {
         "payload": payload,       # The actual message
-        "payload_sig": payload_sig, # Signature of the message
-        "cert": cert_map,         # App's Public Certificate
-        "cert_sig": cert_sig      # Signature of the Cert (by Root CA)
+        "payload_sig": payload_sig # Signature of the message
     }
+    
+    # If a certificate exists (Root+App mode), add it to the container
+    if cert_map is not None and cert_sig is not None:
+        container["cert"] = cert_map
+        container["cert_sig"] = cert_sig
     
     # STEP 2: CBOR Serialization (Binary format)
     raw_cbor = cbor2.dumps(container)
@@ -168,23 +175,53 @@ def fits_within_limit(payload: bytes, app_priv, cert_map, cert_sig, max_ver, try
 
 def main():
     # Argument Parser Setup
-    parser = argparse.ArgumentParser(description="Secure QR Code Generator (Ed25519 + Base64)")
+    parser = argparse.ArgumentParser(description="Secure QR Code Generator (Ed25519 + Base64, Dual Mode: Root-Only / Root+App)")
     parser.add_argument("--payload", required=True, help="Text to encode OR file path")
     parser.add_argument("--file", action="store_true", help="Treat --payload as a file path")
-    parser.add_argument("--app-priv", required=True, help="Path to App Private Key (PEM)")
-    parser.add_argument("--cert-cbor", required=True, help="Path to App Certificate (CBOR)")
     parser.add_argument("--out", default="secure_qr", help="Output filename base (no extension)")
     parser.add_argument("--no-compress", action="store_true", help="Disable ZLIB compression")
     parser.add_argument("--debug", action="store_true", help="Show detailed logs and full data dumps")
     
+    # Mutually Exclusive Group for PKI Modes
+    mode_group = parser.add_mutually_exclusive_group(required=True)
+    
+    # Mode A: Root Only
+    mode_group.add_argument("--root-priv", help="Path to Root CA Private Key (Root-Only Mode)")
+    
+    # Mode B: Root + App
+    mode_group.add_argument("--app-priv", help="Path to App Private Key (Root+App Mode)")
+    
+    # Cert argument is only required if using App Private key
+    parser.add_argument("--cert-cbor", help="Path to App Certificate (Required if using --app-priv)")
+
     args = parser.parse_args()
 
-    # Load Keys
+    # Mode Validation
+    if args.app_priv and not args.cert_cbor:
+        print("[ERROR] --cert-cbor is required when using --app-priv (Root+App Mode).")
+        sys.exit(1)
+
+    # Load Keys based on Mode
+    signing_key = None
+    cert_map = None
+    cert_sig = None
+    mode_name = ""
+
     try:
-        app_priv = load_priv(Path(args.app_priv))
-        cert_map, cert_sig = load_cbor_cert(Path(args.cert_cbor))
+        if args.root_priv:
+            # MODE A: Root Only
+            mode_name = "Root-Only (Direct Trust)"
+            print(f"Loading Root CA Private Key from {args.root_priv}...")
+            signing_key = load_priv(Path(args.root_priv))
+        elif args.app_priv:
+            # MODE B: Root + App
+            mode_name = "Root + App (Certificate Chain)"
+            print(f"Loading App Private Key from {args.app_priv}...")
+            signing_key = load_priv(Path(args.app_priv))
+            print(f"Loading App Certificate from {args.cert_cbor}...")
+            cert_map, cert_sig = load_cbor_cert(Path(args.cert_cbor))
     except Exception as e:
-        print(f"[ERROR] Failed to load keys: {e}")
+        print(f"[ERROR] Failed to load keys/certs: {e}")
         sys.exit(1)
 
     # Read Input Payload
@@ -202,11 +239,11 @@ def main():
         print_debug("Input Payload", payload_bytes)
 
     # Main Generation Process
-    print("Generating QR structure (Base64 Format)...")
+    print(f"Generating QR structure using {mode_name}...")
     
     fits, compressed, qr, final_bin_data, ec = fits_within_limit(
         payload_bytes, 
-        app_priv, 
+        signing_key, 
         cert_map, 
         cert_sig, 
         max_ver=MAX_QR_VERSION,
@@ -232,6 +269,7 @@ def main():
     print("\n" + "="*65)
     print(" SUCCESS - QR CODE GENERATED")
     print("="*65)
+    print(f" PKI Mode:          {mode_name}")
     print(f" Output File:       {out_img}")
     print("-" * 65)
     print(f" QR Version:        {qr.version} (Max limit: {MAX_QR_VERSION})")

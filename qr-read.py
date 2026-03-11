@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Ultimate Secure QR Code Reader (v3.3 - Full Debug, robust comments & Summary)
+Ultimate Secure QR Code Reader (v3.4 - Dual Mode, Full Debug, robust comments & Summary)
 
 Description:
-  This script scans a QR code containing Ed25519-signed data, verifies
-  the trust chain against a provided Root CA public key, and displays
-  the content only if authentic. It concludes with a detailed technical
-  summary table matching the generator's output style.
+  This script scans a QR code containing Ed25519-signed data, automatically
+  detects the PKI mode (Root-Only vs Root+App), verifies the trust chain 
+  against a provided Root CA public key, and displays the content only if 
+  authentic.
 
 Key Features:
-  1. Full Debug Mode: View raw Base64, Hex dumps, and CBOR structures.
-  2. Security Verification: Checks Certificate signature, Expiration dates,
-     and Payload integrity.
-  3. Technical Summary: Displays QR Version, Compression stats, and Data sizes.
-  4. Safety: Prompts user before displaying untrusted data.
+  1. Auto-Detects Mode: Seamlessly handles both Root-Only and Root+App QR codes.
+  2. Full Debug Mode: View raw Base64, Hex dumps, and CBOR structures.
+  3. Security Verification: Checks signatures, Expiration dates, and Payload integrity.
+  4. Technical Summary: Displays QR Version, PKI Mode, Compression stats, and Data sizes.
+  5. Safety: Prompts user before displaying untrusted data.
 """
 
 import argparse
@@ -120,75 +120,106 @@ def check_dates(cert_map: dict) -> bool:
 
     return True
 
-def verify_trust_chain(container: dict, root_keys: list, debug: bool = False) -> tuple[bool, str]:
+def verify_trust_chain(container: dict, root_keys: list, debug: bool = False) -> tuple[bool, str, str]:
     """
-    Verifies the entire security chain:
-    1. Root CA signature on App Certificate.
-    2. App Certificate validity (dates).
-    3. App signature on Payload.
+    Auto-detects mode and verifies the security chain:
+    Mode A (Root-Only): Root CA signature on Payload.
+    Mode B (Root+App): Root CA signature on App Cert -> App Cert validity -> App signature on Payload.
     """
     print(f"\n{Color.CYAN}--- STARTING SECURITY VERIFICATION ---{Color.RESET}")
 
     try:
         payload = container['payload']
         payload_sig = container['payload_sig']
+    except KeyError as e:
+        return False, f"Corrupt data structure. Missing field: {e}", "Unknown"
+    
+    # Check if certificate is present to determine Mode
+    has_cert = 'cert' in container and 'cert_sig' in container
+
+    if has_cert:
+        mode = "Root + App (Certificate Chain)"
         cert_map = container['cert']
         cert_sig = container['cert_sig']
-    except KeyError as e:
-        return False, f"Corrupt data structure. Missing field: {e}"
-    
-    # --- DODANE: Szczegółowe informacje o certyfikacie i ścieżce autoryzacji ---
-    print(f"\n{Color.YELLOW}[Certificate & Authorization Details]{Color.RESET}")
-    print(f"   Issuer (iss):          {cert_map.get('iss', 'N/A (Unknown)')}")
-    print(f"   Subject (sub):         {cert_map.get('sub', 'N/A (Unknown)')}")
-    print(f"   Valid From (nbf):      {cert_map.get('nbf', 'N/A (No start date)')}")
-    print(f"   Expires (exp):         {cert_map.get('exp', 'N/A (No expiration)')}")
-    print(f"   -----------------------")
-    print(f"   Payload Size:          {len(payload)} bytes")
-    print(f"   Payload Signature:     {len(payload_sig)} bytes (Ed25519)")
-    print(f"   Certificate Signature: {len(cert_sig)} bytes (Ed25519)\n")
-    # -------------------------------------------------------------------------
-    
-    if debug:
-        print_debug("Payload to Verify", payload)
-        print_debug("Provided Payload Signature", payload_sig)
-        print_debug("Certificate Data (CBOR)", cbor2.dumps(cert_map))
-        print_debug("Provided Cert Signature", cert_sig)
 
-    # 1. Verify Certificate Signature
-    print(f"1. Verifying Certificate (Signed by Root?)...")
-    cert_verified = False
-    cert_bytes = cbor2.dumps(cert_map)
+        print(f"\n{Color.YELLOW}[Certificate & Authorization Details - Mode: {mode}]{Color.RESET}")
+        print(f"   Issuer (iss):          {cert_map.get('iss', 'N/A (Unknown)')}")
+        print(f"   Subject (sub):         {cert_map.get('sub', 'N/A (Unknown)')}")
+        print(f"   Valid From (nbf):      {cert_map.get('nbf', 'N/A (No start date)')}")
+        print(f"   Expires (exp):         {cert_map.get('exp', 'N/A (No expiration)')}")
+        print(f"   -----------------------")
+        print(f"   Payload Size:          {len(payload)} bytes")
+        print(f"   Payload Signature:     {len(payload_sig)} bytes (Ed25519)")
+        print(f"   Certificate Signature: {len(cert_sig)} bytes (Ed25519)\n")
+        
+        if debug:
+            print_debug("Payload to Verify", payload)
+            print_debug("Provided Payload Signature", payload_sig)
+            print_debug("Certificate Data (CBOR)", cbor2.dumps(cert_map))
+            print_debug("Provided Cert Signature", cert_sig)
 
-    for root_key in root_keys:
+        # 1. Verify Certificate Signature
+        print(f"1. Verifying Certificate (Signed by Root?)...")
+        cert_verified = False
+        cert_bytes = cbor2.dumps(cert_map)
+
+        for root_key in root_keys:
+            try:
+                root_key.verify(cert_sig, cert_bytes)
+                cert_verified = True
+                break
+            except Exception:
+                continue
+                
+        if not cert_verified:
+            return False, "Certificate signature INVALID (does not match any trusted root).", mode
+        print(f"   {Color.GREEN}[OK] Certificate is TRUSTED.{Color.RESET}")
+
+        # 2. Verify Metadata (Dates)
+        print(f"2. Validating Metadata (Dates, Issuer)...")
+        if not check_dates(cert_map):
+            return False, "Certificate date validation failed.", mode
+        print(f"   {Color.GREEN}[OK] Metadata is valid.{Color.RESET}")
+
+        # 3. Verify Payload Integrity
+        print(f"3. Verifying Data Integrity (Signed by App?)...")
         try:
-            root_key.verify(cert_sig, cert_bytes)
-            cert_verified = True
-            break
-        except Exception:
-            continue
-            
-    if not cert_verified:
-        return False, "Certificate signature INVALID (does not match any trusted root)."
-    print(f"   {Color.GREEN}[OK] Certificate is TRUSTED.{Color.RESET}")
+            app_pub_bytes = cert_map['pub']
+            app_pub_key = ed25519.Ed25519PublicKey.from_public_bytes(app_pub_bytes)
+            app_pub_key.verify(payload_sig, payload)
+        except Exception as e:
+            return False, f"Payload signature is INVALID. {e}", mode
 
-    # 2. Verify Metadata (Dates)
-    print(f"2. Validating Metadata (Dates, Issuer)...")
-    if not check_dates(cert_map):
-        return False, "Certificate date validation failed."
-    print(f"   {Color.GREEN}[OK] Metadata is valid.{Color.RESET}")
+        print(f"   {Color.GREEN}[OK] Data is AUTHENTIC and UNMODIFIED.{Color.RESET}")
+        
+    else:
+        # MODE A: Root-Only
+        mode = "Root-Only (Direct Trust)"
+        
+        print(f"\n{Color.YELLOW}[Direct Trust Details - Mode: {mode}]{Color.RESET}")
+        print(f"   Payload Size:          {len(payload)} bytes")
+        print(f"   Payload Signature:     {len(payload_sig)} bytes (Ed25519)\n")
 
-    # 3. Verify Payload Integrity
-    print(f"3. Verifying Data Integrity (Signed by App?)...")
-    try:
-        app_pub_bytes = cert_map['pub']
-        app_pub_key = ed25519.Ed25519PublicKey.from_public_bytes(app_pub_bytes)
-        app_pub_key.verify(payload_sig, payload)
-    except Exception as e:
-        return False, f"Payload signature is INVALID. {e}"
+        if debug:
+            print_debug("Payload to Verify", payload)
+            print_debug("Provided Payload Signature", payload_sig)
 
-    print(f"   {Color.GREEN}[OK] Data is AUTHENTIC and UNMODIFIED.{Color.RESET}")
-    return True, "Secure"
+        print(f"1. Verifying Data Integrity (Signed directly by Root?)...")
+        sig_verified = False
+
+        for root_key in root_keys:
+            try:
+                root_key.verify(payload_sig, payload)
+                sig_verified = True
+                break
+            except Exception:
+                continue
+                
+        if not sig_verified:
+            return False, "Payload signature INVALID (does not match any trusted root).", mode
+        print(f"   {Color.GREEN}[OK] Data is AUTHENTIC and UNMODIFIED.{Color.RESET}")
+
+    return True, "Secure", mode
 
 def estimate_qr_version(straight_qrcode):
     """
@@ -221,7 +252,8 @@ def scan_qr(image_path: Path, root_keys_path: Path, debug: bool = False):
         "compressed": False,
         "raw_size": 0,    # Size of CBOR bytes (potentially compressed)
         "final_size": 0,  # Size of actual payload
-        "version": "N/A"
+        "version": "N/A",
+        "mode": "Unknown"
     }
 
     # 1. Load Trusted Root Keys
@@ -292,7 +324,8 @@ def scan_qr(image_path: Path, root_keys_path: Path, debug: bool = False):
         return
 
     # 4. Perform Security Checks
-    is_valid, status_msg = verify_trust_chain(container, root_keys, debug=debug)
+    is_valid, status_msg, detected_mode = verify_trust_chain(container, root_keys, debug=debug)
+    stats["mode"] = detected_mode
 
     print("-" * 50)
     if is_valid:
@@ -330,6 +363,7 @@ def scan_qr(image_path: Path, root_keys_path: Path, debug: bool = False):
     print(" READING SUMMARY")
     print("="*65)
     print(f" Input File:        {image_path.name}")
+    print(f" PKI Mode:          {stats['mode']}")
     print("-" * 65)
     print(f" QR Version:        {stats['version']} (Estimated)")
     print(f" Error Correction:  N/A (Hidden by Reader)")
@@ -340,9 +374,12 @@ def scan_qr(image_path: Path, root_keys_path: Path, debug: bool = False):
     print("="*65)
 
 def main():
-    parser = argparse.ArgumentParser(description="Secure QR Code Reader (Ed25519 + CBOR)")
+    parser = argparse.ArgumentParser(description="Secure QR Code Reader (Dual Mode)")
     parser.add_argument("--image", required=True, help="Path to the QR code image")
-    parser.add_argument("--root-pub", required=True, help="Path to Root CA public key (PEM)")
+    
+    # We rename this internally since it can be either a root directory or a specific file
+    parser.add_argument("--trusted-dir", required=True, dest="root_pub", help="Path to Trusted Root CA Public Key(s) or Directory")
+    
     parser.add_argument("--debug", action="store_true", help="Enable full debug output (no truncation)")
     
     args = parser.parse_args()
