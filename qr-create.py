@@ -78,11 +78,11 @@ def load_cbor_cert(path: Path):
     except Exception as e:
         raise RuntimeError(f"Failed to decode CBOR cert: {e}")
     
-    # Structure check
-    if not isinstance(env, dict) or "cert" not in env or "sig" not in env:
-        raise RuntimeError("Invalid CBOR structure (missing 'cert' or 'sig' fields)")
+    # --- TUTAJ ZMIANA ---
+    if not isinstance(env, dict) or "cert" not in env or "cert_sig" not in env:
+        raise RuntimeError("Invalid CBOR structure (missing 'cert' or 'cert_sig' fields)")
     
-    return env["cert"], env["sig"]
+    return env["cert"], env["cert_sig"]
 
 def find_optimal_qr(data_content: str, max_version=MAX_QR_VERSION):
     """
