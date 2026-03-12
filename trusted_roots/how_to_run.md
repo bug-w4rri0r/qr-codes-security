@@ -1,60 +1,83 @@
-# Secure QR Code Architecture: Usage Guide
+======================================================
+🇵🇱 WERSJA POLSKA: Zestaw komend - Secure QR Codes
+======================================================
 
-This project uses a flexible PKI (Public Key Infrastructure) architecture to generate and verify secure QR codes. It supports a two-tier structure (Root CA + App) for maximum security and scalability. Follow these steps to generate keys, create a certificate, and generate/scan the signed QR codes.
+PRZYGOTOWANIE (upewnij sie, ze foldery istnieja):
+mkdir -p certs_vault trusted_roots test_qr_images
 
-## Step I: Generate Ed25519 Cryptographic Keys
+======================================================
+SCENARIUSZ 1: Root-Only (Bezposrednie zaufanie)
+======================================================
 
-First, you need to generate the cryptographic key pairs. By default, the system requires a Root CA key pair and an Application (Subject) key pair.
+1. Generowanie kluczy Root CA:
+python cert_gen/gen_ed_keys.py --root-name "PWr-Campus" --root-only --out-dir ./certs_vault/
 
-**1. Generate both Root and App keys in the current directory:**
-``` bash
-python3 gen_ed_keys.py --out-dir .
-```
-(This will generate root_priv.pem, root_pub.pem, app_priv.pem, and app_pub.pem)
+2. Kopiowanie klucza publicznego do zaufanych (dla skanera):
+cp ./certs_vault/PWr-Campus_pub.pem ./trusted_roots/
 
-Alternative options for custom setups:
+3. Tworzenie kodu QR (podpisanego przez Root):
+python qr-create.py --payload "Witaj na kampusie PWr (Tryb Bezposredni)!" --root-priv ./certs_vault/PWr-Campus_priv.pem --out ./test_qr_images/qr_pwr_campus_direct
 
-``` Bash
-# Generate ONLY Root keys with a custom name in a specific directory:
-python3 gen_ed_keys.py --root-name "firma_root-demo" --root-only --out-dir ./demo-test/
-
-# Generate ONLY Root keys for a specific campus:
-python3 gen_ed_keys.py --root-name "PWr-Campus" --root-only --out-dir ./demo-test/
-
-# Generate ONLY Root keys in the current directory:
-python3 gen_ed_keys.py --root-only --out-dir .
-
-```
-
-## Step II: Create the COSE Certificate
-Next, the Root CA must "sign" the Application's public key to establish trust. This generates a lightweight CBOR certificate.
-
-``` Bash
-python3 create_cose_cert.py --root-priv root_priv.pem --sub app1 --pub app_pub.pem --not-after 2030-01-01 --out app_cert.cbor
-```
-⚠️ Important: After this step, you must copy or move your root_pub.pem to the trusted_roots/ directory. The scanner will use this folder to verify the certificate chain.
+4. Odczyt i weryfikacja kodu QR:
+python qr-read.py --image ./test_qr_images/qr_pwr_campus_direct.png --trusted-dir ./trusted_roots/ --debug
 
 
-## Step III: Generate the Secure QR Code
-Now, use the Application's private key to sign your payload, and embed the generated CBOR certificate into the final QR code image.
-``` Bash
-python3 create_qr_ed25519.py --payload "[https://example.com/short](https://example.com/short)" --app-priv app_priv.pem --cert-cbor app_cert.cbor --out secure_ed_qr
-```
+======================================================
+SCENARIUSZ 2: Root + App (Lancuch Certyfikatow)
+======================================================
+UWAGA: Wymaga kluczy Root z kroku 1 Scenariusza 1.
 
-## Step IV: Scan and Verify the QR Code
-Finally, the scanner reads the QR code, verifies the App's certificate against the trusted Root CA, and authenticates the payload.
-``` Bash
-python3 qr-read.py --file secure_ed_qr.png --trusted-dir trusted_roots
-```
+1. Generowanie kluczy dla aplikacji/wydzialu:
+python cert_gen/gen_ed_keys.py --app-only --out-dir ./certs_vault/
 
-# Comprehensive Real-World Example
-If you are using specific directories for your keys, payloads, and images, a full run looks like this:
+2. Wystawienie certyfikatu przez Root dla aplikacji:
+python cert_gen/create_cose_cert.py --root-priv ./certs_vault/PWr-Campus_priv.pem --iss "PWr-Campus" --sub "W4N-K34" --pub ./certs_vault/app_pub.pem --not-before "2024-01-01" --not-after "2030-12-31" --out ./certs_vault/cert_W4N_K34.cbor
 
-## 1. Generate the QR Code from a payload text file:
-``` Bash
-python3 qr-create.py --payload payload.txt --file --app-priv ./cert_keys/app_priv.pem --cert-cbor ./cert_keys/app_cert.cbor --out ./test_qr_images/secure_ed_qr_v1.4
-```
-## 2. Scan and verify with debug output:
-``` Bash
-python3 qr-read.py --image ./test_qr_images/secure_ed_qr_v1.4.png --trusted-dir ./trusted_roots --debug
-```
+3. Tworzenie kodu QR (podpisanego przez aplikacje + z certyfikatem):
+python qr-create.py --payload "Dostep do laboratorium W4N-K34 przyznany." --app-priv ./certs_vault/app_priv.pem --cert-cbor ./certs_vault/cert_W4N_K34.cbor --out ./test_qr_images/qr_w4n_k34_chain
+
+4. Odczyt i weryfikacja calego lancucha zaufania:
+python qr-read.py --image ./test_qr_images/qr_w4n_k34_chain.png --trusted-dir ./trusted_roots/ --debug
+
+
+
+======================================================
+🇬🇧 ENGLISH VERSION: Command set - Secure QR Codes
+======================================================
+
+PREPARATION (make sure directories exist):
+mkdir -p certs_vault trusted_roots test_qr_images
+
+======================================================
+SCENARIO 1: Root-Only (Direct Trust)
+======================================================
+
+1. Generate Root CA keys:
+python cert_gen/gen_ed_keys.py --root-name "PWr-Campus" --root-only --out-dir ./certs_vault/
+
+2. Copy the public key to trusted roots (for the scanner):
+cp ./certs_vault/PWr-Campus_pub.pem ./trusted_roots/
+
+3. Create the QR code (signed by Root):
+python qr-create.py --payload "Welcome to PWr campus (Direct Trust)!" --root-priv ./certs_vault/PWr-Campus_priv.pem --out ./test_qr_images/qr_pwr_campus_direct
+
+4. Read and verify the QR code:
+python qr-read.py --image ./test_qr_images/qr_pwr_campus_direct.png --trusted-dir ./trusted_roots/ --debug
+
+
+======================================================
+SCENARIO 2: Root + App (Certificate Chain)
+======================================================
+NOTE: Requires Root keys from Step 1 of Scenario 1.
+
+1. Generate keys for the application/department:
+python cert_gen/gen_ed_keys.py --app-only --out-dir ./certs_vault/
+
+2. Issue a certificate from Root for the application:
+python cert_gen/create_cose_cert.py --root-priv ./certs_vault/PWr-Campus_priv.pem --iss "PWr-Campus" --sub "W4N-K34" --pub ./certs_vault/app_pub.pem --not-before "2024-01-01" --not-after "2030-12-31" --out ./certs_vault/cert_W4N_K34.cbor
+
+3. Create the QR code (signed by the application + containing the certificate):
+python qr-create.py --payload "Access to W4N-K34 lab granted." --app-priv ./certs_vault/app_priv.pem --cert-cbor ./certs_vault/cert_W4N_K34.cbor --out ./test_qr_images/qr_w4n_k34_chain
+
+4. Read and verify the entire chain of trust:
+python qr-read.py --image ./test_qr_images/qr_w4n_k34_chain.png --trusted-dir ./trusted_roots/ --debug
