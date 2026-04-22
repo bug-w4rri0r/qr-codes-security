@@ -1,0 +1,1 @@
+Path to store certifactions from application and Root Authority
