@@ -28,6 +28,10 @@ documentation/
 !requirements.txt
 !scanner/payload.txt
 
+# --- Local only (not published for now) ---
+qr-test.py
+.github/
+
 # --- Python / editors / OS ---
 __pycache__/
 *.pyc
