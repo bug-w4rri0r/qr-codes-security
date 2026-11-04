@@ -21,6 +21,7 @@ from pathlib import Path
 import cbor2
 
 import sqr_core as core
+from sqr_debug import dump, dump_container, payload_info
 
 
 def load_cert_envelope(path: Path):
@@ -34,18 +35,6 @@ def load_cert_envelope(path: Path):
     if not isinstance(env, dict) or "cert" not in env or "cert_sig" not in env:
         raise core.SecureQRError("Invalid certificate file (missing 'cert' or 'cert_sig')")
     return env["cert"], env["cert_sig"]
-
-
-def print_debug(label, data, is_text=False):
-    print(f"\n[DEBUG] --- {label} ---")
-    print(f" Size: {len(data)} {'chars' if is_text else 'bytes'}")
-    if is_text:
-        print(f" Content:\n{data}")
-        return
-    hex_str = data.hex()
-    for i in range(0, len(hex_str), 64):
-        row = hex_str[i:i + 64]
-        print(" Hex: " + " ".join(row[j:j + 2] for j in range(0, len(row), 2)))
 
 
 def main():
@@ -102,6 +91,7 @@ def main():
     else:
         payload = args.payload.encode("utf-8")
 
+    print(f"Payload:           {payload_info(payload)}")
     print(f"Generating QR structure using {mode_name}...")
     try:
         enc = core.build_container(payload, key, cert, cert_sig, compress=compress)
@@ -109,11 +99,22 @@ def main():
         print(f"[ERROR] {e}")
         sys.exit(1)
     if args.debug:
-        print_debug("Input Payload", payload)
-        print_debug("CBOR container", enc.cbor)
+        dump("Step 0: Input payload", payload)
+        if cert is not None:
+            dump("Certificate: signed bytes (context || deterministic CBOR(cert))",
+                 core.signed_cert_message(cert))
+            dump("Certificate: cert_sig (Root, Ed25519)", cert_sig)
+        dump("Step 1: Signed bytes (context || payload)", core.signed_payload_message(enc.container))
+        dump("Step 1: payload_sig (Ed25519)", enc.container["payload_sig"])
+        dump_container(enc.container)
+        dump("Step 2: Raw CBOR container", enc.cbor)
         if enc.compressed:
-            print_debug("ZLIB compressed", enc.data)
-        print_debug("Base64 text stored in the QR code", enc.text, is_text=True)
+            dump("Step 3: ZLIB compressed (level 9)", enc.data)
+            ratio = len(enc.data) / len(enc.cbor)
+            print(f" Compression ratio: {ratio:.2f} ({(1 - ratio) * 100:+.1f}% size change)")
+        else:
+            print("\n[DEBUG] Step 3: compression skipped")
+        dump("Step 4: Base64 text stored in the QR code", enc.text, is_text=True)
 
     qr, ecc = core.make_qr(enc.text, min_ecc=args.min_ecc, max_version=args.max_version)
     if qr is None:
@@ -133,6 +134,10 @@ def main():
     print("=" * 65)
     print(f" PKI Mode:          {mode_name}")
     print(f" Output File:       {out_img.as_posix()}")
+    print(f" Payload:           {payload_info(payload)}")
+    if cert is not None:
+        print(f" Certificate:       iss={cert.get('iss')} sub={cert.get('sub')} "
+              f"nbf={cert.get('nbf', '-')} exp={cert.get('exp', '-')}")
     print("-" * 65)
     print(f" QR Version:        {qr.version} (Max limit: {args.max_version})")
     print(f" Error Correction:  {ecc}")
@@ -141,6 +146,7 @@ def main():
     print(f" CBOR Size:         {s['cbor']} bytes (before compression)")
     print(f" Encoded Size:      {s['encoded']} bytes (after compression, before Base64)")
     print(f" QR Text Length:    {s['base64']} chars (Base64)")
+    print(f" QR Size:           {qr.symbol_size(border=0)[0]}x{qr.symbol_size(border=0)[1]} modules")
     print("=" * 65)
 
 

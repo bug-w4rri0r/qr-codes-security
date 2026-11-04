@@ -26,6 +26,12 @@ v1 structure and sizes (Scenario 1: QR v8, CBOR 128 B; Scenario 2: QR v13, CBOR 
 - Output directories are created automatically.
 - `--legacy-v1` in `qr-read.py` verifies codes made by v1 tools.
 
+### Debug and reporting
+- `--debug` in both tools dumps every stage in full (Base64, ZLIB, CBOR, container fields, the exact
+  bytes covered by each signature); the summaries always show the payload and the certificate.
+- `benchmarks/e2e_cli_pipeline.py`: per-code report of what was created and read, summary table,
+  `report.json`, own payloads (`--payloads`), negative attack cases (`--negative`).
+
 ### Reproducibility
 - `reproduce_paper.py`: runs both scenarios of the paper and compares the results.
 - `benchmarks/`: raw Ed25519 and full-pipeline benchmarks (perf_counter, environment report,

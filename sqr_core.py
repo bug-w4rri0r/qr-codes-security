@@ -143,8 +143,24 @@ def encode_cert(cert: dict, legacy_v1: bool = False) -> bytes:
     return cbor2.dumps(cert) if legacy_v1 else cbor2.dumps(cert, canonical=True)
 
 
+def signed_cert_message(cert: dict, legacy_v1: bool = False) -> bytes:
+    """Exact bytes covered by cert_sig."""
+    return (b"" if legacy_v1 else CTX_CERT) + encode_cert(cert, legacy_v1)
+
+
+def payload_context(has_cert: bool, legacy_v1: bool = False) -> bytes:
+    if legacy_v1:
+        return b""
+    return CTX_APP_PAYLOAD if has_cert else CTX_ROOT_PAYLOAD
+
+
+def signed_payload_message(container: dict, legacy_v1: bool = False) -> bytes:
+    """Exact bytes covered by payload_sig."""
+    return payload_context("cert" in container, legacy_v1) + container["payload"]
+
+
 def sign_cert(root_key: ed25519.Ed25519PrivateKey, cert: dict) -> bytes:
-    return root_key.sign(CTX_CERT + encode_cert(cert))
+    return root_key.sign(signed_cert_message(cert))
 
 
 def parse_time(value, end_of_day: bool = False) -> int:
@@ -212,7 +228,7 @@ def build_container(payload: bytes, signing_key: ed25519.Ed25519PrivateKey,
         raise SecureQRError("Payload must be non-empty bytes")
     if (cert is None) != (cert_sig is None):
         raise SecureQRError("cert and cert_sig must be given together")
-    context = CTX_ROOT_PAYLOAD if cert is None else CTX_APP_PAYLOAD
+    context = payload_context(cert is not None)
     container = {"payload": payload, "payload_sig": signing_key.sign(context + payload)}
     if cert is not None:
         container["cert"] = cert
@@ -261,7 +277,9 @@ def make_qr(text: str, min_ecc: str = "L", max_version: int = MAX_QR_VERSION):
 def decode_text(text: str) -> tuple[dict, dict]:
     """Base64 -> (optional) ZLIB -> CBOR with strict, bounded parsing.
 
-    Returns (container, stats). Raises SecureQRError on malformed data.
+    Returns (container, stats). stats also keeps the intermediate bytes
+    ('encoded_bytes' after Base64, 'cbor_bytes' after ZLIB) for debug output.
+    Raises SecureQRError on malformed data.
     """
     if not isinstance(text, str) or not text or len(text) > MAX_BASE64_CHARS:
         raise SecureQRError("QR text is empty or too long")
@@ -285,6 +303,7 @@ def decode_text(text: str) -> tuple[dict, dict]:
     except Exception as e:
         raise SecureQRError(f"Invalid CBOR: {e}")
     stats["cbor"] = len(raw)
+    stats["encoded_bytes"], stats["cbor_bytes"] = data, raw
     validate_container(container)
     stats["payload"] = len(container["payload"])
     return container, stats
@@ -345,17 +364,15 @@ def verify_container(c: dict, root_keys: list, now: Optional[int] = None,
 
     now = int(_time.time()) if now is None else now
     validate_container(c)
-    payload, payload_sig = c["payload"], c["payload_sig"]
-    ctx_root = b"" if legacy_v1 else CTX_ROOT_PAYLOAD
-    ctx_app = b"" if legacy_v1 else CTX_APP_PAYLOAD
-    ctx_cert = b"" if legacy_v1 else CTX_CERT
+    payload_sig = c["payload_sig"]
+    payload_msg = signed_payload_message(c, legacy_v1)
 
     if "cert" not in c:
         res = Verification(False, MODE_ROOT)
         if require_chain:
             res.reason = "Certificate chain required (--require-chain), but the code is Root-Only"
             return res
-        ok = _verify_any(root_keys, payload_sig, ctx_root + payload)
+        ok = _verify_any(root_keys, payload_sig, payload_msg)
         res.checks.append(("Payload signature (Root)", ok))
         if not ok:
             res.reason = "Payload signature INVALID (does not match any trusted root)"
@@ -366,7 +383,7 @@ def verify_container(c: dict, root_keys: list, now: Optional[int] = None,
     res = Verification(False, MODE_CHAIN)
     cert, cert_sig = c["cert"], c["cert_sig"]
 
-    ok = _verify_any(root_keys, cert_sig, ctx_cert + encode_cert(cert, legacy_v1))
+    ok = _verify_any(root_keys, cert_sig, signed_cert_message(cert, legacy_v1))
     res.checks.append(("Certificate signature (Root)", ok))
     if not ok:
         res.reason = "Certificate signature INVALID (does not match any trusted root)"
@@ -398,7 +415,7 @@ def verify_container(c: dict, root_keys: list, now: Optional[int] = None,
     res.checks.append(("Validity window (nbf/exp)", True))
 
     app_key = ed25519.Ed25519PublicKey.from_public_bytes(cert["pub"])
-    ok = _verify_any([app_key], payload_sig, ctx_app + payload)
+    ok = _verify_any([app_key], payload_sig, payload_msg)
     res.checks.append(("Payload signature (App key from certificate)", ok))
     if not ok:
         res.reason = "Payload signature INVALID"

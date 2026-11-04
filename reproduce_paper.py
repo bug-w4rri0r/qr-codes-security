@@ -59,7 +59,7 @@ def main():
 
     work = Path(a.workdir) if a.workdir else Path(tempfile.mkdtemp(prefix="secure-qr-"))
     work.mkdir(parents=True, exist_ok=True)
-    for name in ("qr-create.py", "qr-read.py", "sqr_core.py"):
+    for name in ("qr-create.py", "qr-read.py", "sqr_core.py", "sqr_debug.py"):
         shutil.copy(HERE / name, work / name)
     shutil.copytree(HERE / "cert_gen", work / "cert_gen", dirs_exist_ok=True)
     vault, trusted, images = work / "certs_vault", work / "trusted_roots", work / "test_qr_images"

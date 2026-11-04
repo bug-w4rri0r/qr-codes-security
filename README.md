@@ -143,7 +143,29 @@ Requires the Root keys from Scenario 1.
    Access to laboratory W4N-K34 granted.
    ```
 
-Add `--debug` to either tool to see the CBOR, ZLIB and Base64 data byte by byte.
+### Debug mode
+
+Add `--debug` to `qr-create.py` or `qr-read.py` to see every stage in full, without truncation:
+
+| `qr-create.py --debug` | `qr-read.py --debug` |
+|---|---|
+| Step 0 input payload (hex) | Step 1 raw QR text (Base64) |
+| certificate: signed bytes and `cert_sig` (Root+App) | Step 2 decoded Base64 (hex) |
+| Step 1 signed bytes (context ‖ payload) and `payload_sig` | Step 3 ZLIB-decompressed CBOR (hex) and compression ratio |
+| CBOR container field by field | CBOR container field by field (payload marked *not verified yet*) |
+| Step 2 raw CBOR (hex) | bytes checked against `cert_sig` and `payload_sig` |
+| Step 3 ZLIB output (hex) and compression ratio | trusted Root key fingerprints |
+| Step 4 Base64 text stored in the QR code | |
+
+```bash
+python qr-create.py --payload "Welcome to the PWrcampus (Direct Mode)!" --root-priv ./certs_vault/PWr-Campus_priv.pem --out ./test_qr_images/qr_pwr_campus_direct --debug
+```
+```bash
+python qr-read.py --image ./test_qr_images/qr_pwr_campus_direct.png --trusted-dir ./trusted_roots/ --debug
+```
+
+Without `--debug` both tools still print the payload (text and size), the certificate
+(issuer, subject, validity) and all sizes in their summary.
 
 ### Useful options
 
@@ -183,8 +205,47 @@ start-up). Defaults follow the paper run: Root-Only, ECC level H, 3 px per modul
 | Full QR generation (sign + CBOR + ZLIB + Base64 + QR + PNG) | 42.46 ms | 42.18 ms |
 | Full QR verification (OpenCV + Base64 + ZLIB + CBOR + signature) | 24.07 ms | 25.98 ms |
 
-`benchmarks/e2e_cli_pipeline.py --count 10` is an end-to-end functional run of the Root + App chain
-through the CLI tools with realistic ~150-byte ticket URLs.
+### End-to-end pipeline: generate X codes, read them back, see everything
+
+`benchmarks/e2e_cli_pipeline.py` builds a fresh PKI, generates the codes with `qr-create.py`, reads
+every image with `qr-read.py` and reports for each code what was **created** (payload, image file, QR
+version and size, ECC level, CBOR → ZLIB → Base64 sizes) and what was **read** (PKI mode,
+certificate, each verification step, decoded payload, match, exit code), then a summary table.
+
+```bash
+python benchmarks/e2e_cli_pipeline.py --count 10 --workdir e2e_run
+```
+
+| Option | Effect |
+|---|---|
+| `--count N` | N random ~150-byte ticket URLs (default 10) |
+| `--payloads FILE` | your own payloads, one per line |
+| `--mode root` / `--mode chain` | Root-Only or Root + App (default chain) |
+| `--min-ecc Q` | higher error correction level |
+| `--negative` | five attack cases that must be rejected: untrusted Root, forged certificate, expired certificate, Root-Only code where a chain is required, wrong trust store |
+| `--workdir DIR` | keep keys, images (`DIR/test_qr_images/case_NN.png`) and `DIR/report.json` |
+| `--debug` | print the full output of every tool call, including the `--debug` byte dumps |
+
+Example (shortened):
+
+```
+[CREATE 01] OK  test_qr_images/case_01.png
+            payload: "https://api.mobility.wroclaw.pl/v1/verify-ticket?tkt=6DKOJG2M72RQ&t..." (148 B)
+            QR v17 (85x85 modules), ECC L, CBOR 446 B -> ZLIB 446 B -> Base64 596 chars
+[READ   01] VERIFIED (exit 0, 761 ms)  mode: Root + App (Certificate Chain)
+            certificate: iss=Global_Mobility_Root sub=PL_WRO_Transit_API nbf=2025-10-01 exp=2030-12-31
+            check  Certificate signature (Root): OK
+            check  Algorithm is Ed25519: OK
+            check  Validity window (nbf/exp): OK
+            check  Payload signature (App key from certificate): OK
+            decoded: "https://api.mobility.wroclaw.pl/v1/verify-ticket?tkt=6DKOJG2M72RQ&t..."
+            payload match: YES
+[NEG 3] REJECTED as expected  (exit 2)
+        Expired certificate (valid 2020-01-01 .. 2021-12-31)
+        reason: Certificate has EXPIRED (exp 2021-12-31)
+ Positive cases: 10/10 verified and matched
+ Negative cases: 5/5 rejected as expected
+```
 
 The scripts that produced the numbers in the paper are archived unchanged in
 [`benchmarks/paper_v1/`](benchmarks/paper_v1/README.md).
@@ -278,6 +339,7 @@ text) and is **COSE-inspired**, but the container is not a COSE_Sign1 message.
 ├── qr-create.py              # generator (Root-Only / Root + App)
 ├── qr-read.py                # reader and verifier
 ├── sqr_core.py               # shared format, signing and verification code
+├── sqr_debug.py              # --debug output shared by both tools
 ├── reproduce_paper.py        # one-command reproduction of the paper's scenarios
 ├── requirements.txt          # pinned dependencies
 ├── cert_gen/

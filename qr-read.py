@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 import sqr_core as core
+from sqr_debug import dump, dump_container, payload_info
 
 
 class Color:
@@ -25,18 +26,6 @@ class Color:
     YELLOW = "\033[93m"
     CYAN = "\033[96m"
     RESET = "\033[0m"
-
-
-def print_debug(label, data, is_text=False):
-    print(f"\n{Color.CYAN}[DEBUG] --- {label} ---{Color.RESET}")
-    print(f" Size: {len(data)} {'chars' if is_text else 'bytes'}")
-    if is_text:
-        print(f" Content:\n{data}")
-        return
-    hex_str = data.hex()
-    for i in range(0, len(hex_str), 64):
-        row = hex_str[i:i + 64]
-        print(" Hex: " + " ".join(row[j:j + 2] for j in range(0, len(row), 2)))
 
 
 def main():
@@ -68,13 +57,23 @@ def main():
         print(f"{Color.RED}[ERROR] {e}{Color.RESET}")
         sys.exit(1)
     if args.debug:
-        print_debug("Step 1: Raw QR Text (Base64)", text, is_text=True)
+        dump("Step 1: Raw QR text (Base64)", text, is_text=True, color=True)
 
     try:
         container, stats = core.decode_text(text)
     except core.SecureQRError as e:
         print(f"{Color.RED}[FATAL] Rejected before verification: {e}{Color.RESET}")
         sys.exit(2)
+    if args.debug:
+        dump("Step 2: Decoded Base64 (binary)", stats["encoded_bytes"], color=True)
+        if stats["compressed"]:
+            dump("Step 3: ZLIB decompressed (CBOR)", stats["cbor_bytes"], color=True)
+            ratio = stats["encoded"] / stats["cbor"]
+            print(f" Compression ratio: {ratio:.2f} ({(1 - ratio) * 100:+.1f}% size change)")
+        else:
+            print(f"\n{Color.CYAN}[DEBUG] Step 3: data was not compressed{Color.RESET}")
+        dump_container(container, color=True)
+        print(f"{Color.YELLOW} (payload above is NOT verified yet){Color.RESET}")
     print(f"Compression:       {'ZLIB (Decompressed)' if stats['compressed'] else 'NONE'}")
     print("Format:            VALID CBOR (schema checked)")
 
@@ -97,6 +96,14 @@ def main():
         print(f"   Payload Signature:     {len(container['payload_sig'])} bytes (Ed25519)\n")
     if args.legacy_v1:
         print(f"{Color.YELLOW}[LEGACY] Verifying with v1 rules (no domain separation).{Color.RESET}")
+    if args.debug:
+        if "cert" in container:
+            dump("Certificate: bytes checked against cert_sig (context || deterministic CBOR(cert))",
+                 core.signed_cert_message(container["cert"], args.legacy_v1), color=True)
+        dump("Payload: bytes checked against payload_sig (context || payload)",
+             core.signed_payload_message(container, args.legacy_v1), color=True)
+        print(f" Trusted root keys: " + ", ".join(core.raw_public_bytes(k).hex()[:16] + "..." for k in roots))
+        print()
 
     result = core.verify_container(container, roots, require_chain=args.require_chain,
                                    legacy_v1=args.legacy_v1)
@@ -130,6 +137,11 @@ def main():
     print("=" * 65)
     print(f" Input File:        {image.name}")
     print(f" PKI Mode:          {result.mode}")
+    print(f" Verification:      {'VERIFIED' if result.ok else 'FAILED - ' + result.reason}")
+    print(f" Payload:           {payload_info(payload)}")
+    if "cert" in container:
+        c = container["cert"]
+        print(f" Certificate:       iss={c['iss']} sub={c['sub']} nbf={c.get('nbf', '-')} exp={c.get('exp', '-')}")
     print("-" * 65)
     print(f" QR Version:        {version if version else 'Unknown'} (Estimated)")
     print(" Error Correction:  N/A (Hidden by Reader)")
