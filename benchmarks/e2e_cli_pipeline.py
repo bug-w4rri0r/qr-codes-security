@@ -125,7 +125,9 @@ def main():
     a = p.parse_args()
 
     if a.payloads:
-        payloads = [l.rstrip("\r\n") for l in Path(a.payloads).read_text(encoding="utf-8").splitlines() if l.strip()]
+        # utf-8-sig drops the BOM that Windows editors / PowerShell may write
+        payloads = [l.rstrip("\r\n") for l in Path(a.payloads).read_text(encoding="utf-8-sig").splitlines()
+                    if l.strip()]
     else:
         payloads = random_payloads(a.count)
 

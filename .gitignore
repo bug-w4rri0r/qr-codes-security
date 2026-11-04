@@ -16,6 +16,7 @@ test_benchmark_qrs/
 1.test_benchmark_qrs/
 benchmark_full_pipeline/
 paper_run/
+e2e_run/
 qr_img/
 documentation/
 *.png

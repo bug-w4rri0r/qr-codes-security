@@ -1,6 +1,10 @@
-# Tested with Python 3.14.0 on Windows 11 (see README.md, "Reproducing the paper").
+# Verified with a fresh virtual environment on Python 3.14.0 (Windows 11):
+#   pip install -r requirements.txt  ->  all tests pass, reproduce_paper.py matches the paper.
+# Python 3.11 or newer is required (numpy 2.3).
+# Note: opencv-python 4.12.0.88 (used for the benchmark numbers in the README) requires
+# numpy < 2.3 and has no ready-made wheel combination for Python 3.14, so 4.14 is pinned here.
 cbor2==5.7.1
 cryptography==46.0.3
 segno==1.6.6
-opencv-python==4.12.0.88
+opencv-python==4.14.0.94
 numpy==2.3.5

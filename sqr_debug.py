@@ -29,7 +29,7 @@ def dump(label: str, data, is_text: bool = False, color: bool = False):
 def payload_info(payload: bytes) -> str:
     """One-line description: text (if UTF-8) and size."""
     try:
-        text = payload.decode("utf-8")
+        text = "".join(c if c.isprintable() else repr(c)[1:-1] for c in payload.decode("utf-8"))
         shown = text if len(text) <= 120 else text[:117] + "..."
         return f'"{shown}" ({len(payload)} bytes, UTF-8 text)'
     except UnicodeDecodeError:

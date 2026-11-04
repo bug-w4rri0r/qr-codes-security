@@ -28,8 +28,16 @@ class Color:
     RESET = "\033[0m"
 
 
+class ArgumentParser(argparse.ArgumentParser):
+    """Usage errors exit with 1, so that exit code 2 always means 'verification failed'."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(1, f"{self.prog}: error: {message}\n")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Secure QR Code Reader (Dual Mode)")
+    parser = ArgumentParser(description="Secure QR Code Reader (Dual Mode)")
     parser.add_argument("--image", required=True, help="Path to the QR code image")
     parser.add_argument("--trusted-dir", required=True, dest="trusted",
                         help="Trusted Root CA public key (.pem) or a directory of Root *.pem keys")

@@ -282,6 +282,16 @@ class CommandLine(unittest.TestCase):
         self.cli(["cert_gen/gen_ed_keys.py", "--root-name", "Root", "--root-only", "--out-dir",
                   str(self.dir / "vault")], expect=1)
 
+    def test_show_cert_checks_root_signature(self):
+        cert = str(self.dir / "vault" / "cert.cbor")
+        out = self.cli(["cert_gen/show_cert.py", "--cert", cert, "--root-pub", str(self.dir / "trusted")])
+        self.assertIn("Root signature:    VALID", out)
+        self.cli(["cert_gen/show_cert.py", "--cert", cert, "--root-pub",
+                  str(self.dir / "vault" / "App_pub.pem")], expect=2)
+
+    def test_reader_usage_error_is_exit_1(self):
+        self.cli(["qr-read.py", "--trusted-dir", str(self.dir / "trusted")], expect=1)
+
 
 if __name__ == "__main__":
     unittest.main()
