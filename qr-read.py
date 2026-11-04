@@ -1,390 +1,146 @@
 #!/usr/bin/env python3
 """
-Ultimate Secure QR Code Reader (v3.4 - Dual Mode, Full Debug, robust comments & Summary)
+Secure QR Code Reader (v2.0 - Dual Mode)
 
-Description:
-  This script scans a QR code containing Ed25519-signed data, automatically
-  detects the PKI mode (Root-Only vs Root+App), verifies the trust chain 
-  against a provided Root CA public key, and displays the content only if 
-  authentic.
+Scans a QR code image, detects the PKI mode (Root-Only vs Root+App), verifies
+the trust chain against trusted Root public keys and shows the payload only if
+it is authentic.
 
-Key Features:
-  1. Auto-Detects Mode: Seamlessly handles both Root-Only and Root+App QR codes.
-  2. Full Debug Mode: View raw Base64, Hex dumps, and CBOR structures.
-  3. Security Verification: Checks signatures, Expiration dates, and Payload integrity.
-  4. Technical Summary: Displays QR Version, PKI Mode, Compression stats, and Data sizes.
-  5. Safety: Prompts user before displaying untrusted data.
+Verification is fail-fast: Base64/ZLIB/CBOR schema checks run before any
+cryptography, and the first failing check stops processing.
+
+Exit codes: 0 = verified, 2 = verification failed, 1 = input or usage error.
 """
 
 import argparse
 import sys
-import zlib
-import base64
-import cv2
-import time
-from datetime import datetime, timezone
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519
+import sqr_core as core
 
-# ANSI Color Codes for Terminal Output
+
 class Color:
-    GREEN = '\033[92m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    CYAN = '\033[96m'
-    RESET = '\033[0m'
+    GREEN = "\033[92m"
+    RED = "\033[91m"
+    YELLOW = "\033[93m"
+    CYAN = "\033[96m"
+    RESET = "\033[0m"
+
 
 def print_debug(label, data, is_text=False):
-    """
-    Helper function for verbose debug printing.
-    Shows FULL data without truncation (byte-perfect debugging).
-    """
     print(f"\n{Color.CYAN}[DEBUG] --- {label} ---{Color.RESET}")
-    if data is None:
-        print(" [None]")
-        return
-    
-    size = len(data)
-    print(f" Size: {size} bytes/chars")
-    
+    print(f" Size: {len(data)} {'chars' if is_text else 'bytes'}")
     if is_text:
-        # Print FULL text
         print(f" Content:\n{data}")
-    else:
-        # Print FULL Hex Dump
-        hex_str = data.hex()
-        # Format nicely in rows of 32 bytes (64 hex chars)
-        chunk_size = 64
-        for i in range(0, len(hex_str), chunk_size):
-            row = hex_str[i:i+chunk_size]
-            formatted = " ".join([row[j:j+2] for j in range(0, len(row), 2)])
-            print(f" Hex: {formatted}")
-
-def load_root_keys(path: Path) -> list:
-    """Loads trusted Root CA public keys from a file or directory."""
-    keys = []
-    def load_file(fpath):
-        try:
-            with open(fpath, "rb") as f:
-                keys.append(serialization.load_pem_public_key(f.read()))
-                return True
-        except Exception:
-            return False
-
-    if path.is_file():
-        if not load_file(path):
-            print(f"{Color.RED}[ERROR] Failed to load key: {path}{Color.RESET}")
-            sys.exit(1)
-    elif path.is_dir():
-        for child in path.iterdir():
-            if child.is_file():
-                load_file(child)
-        if not keys:
-            print(f"{Color.RED}[ERROR] No valid keys found in directory: {path}{Color.RESET}")
-            sys.exit(1)
-    else:
-        print(f"{Color.RED}[ERROR] Path does not exist: {path}{Color.RESET}")
-        sys.exit(1)
-    return keys
-
-def check_dates(cert_map: dict) -> bool:
-    """Validates 'nbf' (Not Before) and 'exp' (Expiration) fields."""
-    now = int(time.time())
-    
-    def parse_to_timestamp(val):
-        if isinstance(val, (int, float)): return int(val)
-        if isinstance(val, str):
-            try:
-                dt = datetime.fromisoformat(val.replace('Z', '+00:00'))
-                if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
-                return int(dt.timestamp())
-            except ValueError: return None
-        return None
-
-    # Check "Not Before"
-    if 'nbf' in cert_map:
-        nbf = parse_to_timestamp(cert_map['nbf'])
-        if nbf and now < nbf:
-            print(f"   {Color.RED}[FAIL] Certificate is NOT YET valid (starts {cert_map['nbf']}).{Color.RESET}")
-            return False
-
-    # Check "Expiration"
-    if 'exp' in cert_map:
-        exp = parse_to_timestamp(cert_map['exp'])
-        if exp and now > exp:
-            print(f"   {Color.RED}[FAIL] Certificate has EXPIRED (ended {cert_map['exp']}).{Color.RESET}")
-            return False
-
-    return True
-
-def verify_trust_chain(container: dict, root_keys: list, debug: bool = False) -> tuple[bool, str, str]:
-    """
-    Auto-detects mode and verifies the security chain:
-    Mode A (Root-Only): Root CA signature on Payload.
-    Mode B (Root+App): Root CA signature on App Cert -> App Cert validity -> App signature on Payload.
-    """
-    print(f"\n{Color.CYAN}--- STARTING SECURITY VERIFICATION ---{Color.RESET}")
-
-    try:
-        payload = container['payload']
-        payload_sig = container['payload_sig']
-    except KeyError as e:
-        return False, f"Corrupt data structure. Missing field: {e}", "Unknown"
-    
-    # Check if certificate is present to determine Mode
-    has_cert = 'cert' in container and 'cert_sig' in container
-
-    if has_cert:
-        mode = "Root + App (Certificate Chain)"
-        cert_map = container['cert']
-        cert_sig = container['cert_sig']
-
-        print(f"\n{Color.YELLOW}[Certificate & Authorization Details - Mode: {mode}]{Color.RESET}")
-        print(f"   Issuer (iss):          {cert_map.get('iss', 'N/A (Unknown)')}")
-        print(f"   Subject (sub):         {cert_map.get('sub', 'N/A (Unknown)')}")
-        print(f"   Valid From (nbf):      {cert_map.get('nbf', 'N/A (No start date)')}")
-        print(f"   Expires (exp):         {cert_map.get('exp', 'N/A (No expiration)')}")
-        print(f"   -----------------------")
-        print(f"   Payload Size:          {len(payload)} bytes")
-        print(f"   Payload Signature:     {len(payload_sig)} bytes (Ed25519)")
-        print(f"   Certificate Signature: {len(cert_sig)} bytes (Ed25519)\n")
-        
-        if debug:
-            print_debug("Payload to Verify", payload)
-            print_debug("Provided Payload Signature", payload_sig)
-            print_debug("Certificate Data (CBOR)", cbor2.dumps(cert_map))
-            print_debug("Provided Cert Signature", cert_sig)
-
-        # 1. Verify Certificate Signature
-        print(f"1. Verifying Certificate (Signed by Root?)...")
-        cert_verified = False
-        cert_bytes = cbor2.dumps(cert_map)
-
-        for root_key in root_keys:
-            try:
-                root_key.verify(cert_sig, cert_bytes)
-                cert_verified = True
-                break
-            except Exception:
-                continue
-                
-        if not cert_verified:
-            return False, "Certificate signature INVALID (does not match any trusted root).", mode
-        print(f"   {Color.GREEN}[OK] Certificate is TRUSTED.{Color.RESET}")
-
-        # 2. Verify Metadata (Dates)
-        print(f"2. Validating Metadata (Dates, Issuer)...")
-        if not check_dates(cert_map):
-            return False, "Certificate date validation failed.", mode
-        print(f"   {Color.GREEN}[OK] Metadata is valid.{Color.RESET}")
-
-        # 3. Verify Payload Integrity
-        print(f"3. Verifying Data Integrity (Signed by App?)...")
-        try:
-            app_pub_bytes = cert_map['pub']
-            app_pub_key = ed25519.Ed25519PublicKey.from_public_bytes(app_pub_bytes)
-            app_pub_key.verify(payload_sig, payload)
-        except Exception as e:
-            return False, f"Payload signature is INVALID. {e}", mode
-
-        print(f"   {Color.GREEN}[OK] Data is AUTHENTIC and UNMODIFIED.{Color.RESET}")
-        
-    else:
-        # MODE A: Root-Only
-        mode = "Root-Only (Direct Trust)"
-        
-        print(f"\n{Color.YELLOW}[Direct Trust Details - Mode: {mode}]{Color.RESET}")
-        print(f"   Payload Size:          {len(payload)} bytes")
-        print(f"   Payload Signature:     {len(payload_sig)} bytes (Ed25519)\n")
-
-        if debug:
-            print_debug("Payload to Verify", payload)
-            print_debug("Provided Payload Signature", payload_sig)
-
-        print(f"1. Verifying Data Integrity (Signed directly by Root?)...")
-        sig_verified = False
-
-        for root_key in root_keys:
-            try:
-                root_key.verify(payload_sig, payload)
-                sig_verified = True
-                break
-            except Exception:
-                continue
-                
-        if not sig_verified:
-            return False, "Payload signature INVALID (does not match any trusted root).", mode
-        print(f"   {Color.GREEN}[OK] Data is AUTHENTIC and UNMODIFIED.{Color.RESET}")
-
-    return True, "Secure", mode
-
-def estimate_qr_version(straight_qrcode):
-    """
-    Attempts to calculate QR Version from the rectified image returned by OpenCV.
-    Formula: Version = (Modules - 21) / 4 + 1
-    """
-    if straight_qrcode is None:
-        return "N/A"
-    
-    try:
-        # OpenCV returns a rectified square image.
-        # Ideally, 1 pixel = 1 module.
-        width = straight_qrcode.shape[0]
-        
-        # Check if width matches a valid QR dimension (21, 25, 29, ..., 177)
-        # Dimension = 21 + (V-1)*4
-        if (width - 21) % 4 == 0:
-            v = (width - 21) // 4 + 1
-            if 1 <= v <= 40:
-                return str(v)
-        
-        # If OpenCV upscaled the image, this simple check fails.
-        return "Unknown (Resampled)"
-    except:
-        return "N/A"
-
-def scan_qr(image_path: Path, root_keys_path: Path, debug: bool = False):
-    # Stats container for the final summary
-    stats = {
-        "compressed": False,
-        "raw_size": 0,    # Size of CBOR bytes (potentially compressed)
-        "final_size": 0,  # Size of actual payload
-        "version": "N/A",
-        "mode": "Unknown"
-    }
-
-    # 1. Load Trusted Root Keys
-    try:
-        root_keys = load_root_keys(root_keys_path)
-        print(f"Loaded {len(root_keys)} trusted root key(s).")
-    except Exception as e:
-        print(f"Key error: {e}")
         return
+    hex_str = data.hex()
+    for i in range(0, len(hex_str), 64):
+        row = hex_str[i:i + 64]
+        print(" Hex: " + " ".join(row[j:j + 2] for j in range(0, len(row), 2)))
 
-    # 2. Load and Decode Image
-    if not image_path.exists():
-        print(f"Error: File {image_path} does not exist")
-        sys.exit(1)
-
-    print(f"Scanning image: {image_path.name} ...")
-    try:
-        img = cv2.imread(str(image_path))
-        if img is None:
-            print(f"{Color.RED}[ERROR] Failed to load image file.{Color.RESET}")
-            return
-            
-        detector = cv2.QRCodeDetector()
-        # detectAndDecode returns: decoded_info, points, straight_qrcode (rectified image)
-        decoded_text, points, straight_qrcode = detector.detectAndDecode(img)
-    except Exception as e:
-        print(f"[ERROR] OpenCV error: {e}")
-        return
-
-    if not decoded_text:
-        print(f"{Color.RED}[ERROR] No QR code detected.{Color.RESET}")
-        return
-
-    # Estimate Version logic
-    stats["version"] = estimate_qr_version(straight_qrcode)
-
-    if debug:
-        print_debug("Step 1: Raw QR Text (Base64)", decoded_text, is_text=True)
-
-    # 3. Process Data (Base64 -> ZLIB -> CBOR)
-    try:
-        # A. Base64 Decode
-        raw_bytes = base64.b64decode(decoded_text)
-        stats["raw_size"] = len(raw_bytes) # Store compressed size for stats
-        
-        if debug:
-            print_debug("Step 2: Decoded Base64 (Binary)", raw_bytes)
-        
-        # B. ZLIB Decompress
-        try:
-            cbor_data = zlib.decompress(raw_bytes)
-            stats["compressed"] = True
-            print("Compression:       ZLIB (Decompressed)")
-            if debug: print_debug("Step 3: ZLIB Decompressed", cbor_data)
-        except zlib.error:
-            cbor_data = raw_bytes
-            stats["compressed"] = False
-            print("Compression:       NONE")
-            
-        # C. CBOR Load
-        container = cbor2.loads(cbor_data)
-        stats["final_size"] = len(container.get('payload', b''))
-        print("Format:            VALID CBOR")
-        
-    except Exception as e:
-        print(f"{Color.RED}[FATAL] Failed to parse data structure.{Color.RESET}")
-        print(f"Details: {e}")
-        return
-
-    # 4. Perform Security Checks
-    is_valid, status_msg, detected_mode = verify_trust_chain(container, root_keys, debug=debug)
-    stats["mode"] = detected_mode
-
-    print("-" * 50)
-    if is_valid:
-        print(f"{Color.GREEN}✅ SUCCESS: DATA VERIFIED AND SECURE{Color.RESET}")
-    else:
-        print(f"{Color.RED}❌ SECURITY WARNING: VERIFICATION FAILED{Color.RESET}")
-        print(f"Reason: {status_msg}")
-        print("-" * 50)
-        
-        # Prompt user if data is untrusted
-        try:
-            user_input = input(f"{Color.YELLOW}Data is UNTRUSTED. Display payload anyway? (yes/no): {Color.RESET}")
-            if user_input.lower() not in ['yes', 'y', 'tak', 't']:
-                print("Aborting display.")
-                sys.exit(1)
-        except KeyboardInterrupt:
-            print("\nAborted.")
-            sys.exit(1)
-
-    # 5. Display Payload
-    print("\n" + "=" * 30)
-    print("      PAYLOAD CONTENT      ")
-    print("=" * 30)
-    try:
-        print(container['payload'].decode('utf-8'))
-    except:
-        print(f"[Binary Data] Hex: {container['payload'].hex()}")
-    print("=" * 30 + "\n")
-
-    if 'sub' in container.get('cert', {}):
-        print(f"Issued to (Subject): {container['cert']['sub']}")
-
-    # 6. SUMMARY TABLE
-    print("\n" + "="*65)
-    print(" READING SUMMARY")
-    print("="*65)
-    print(f" Input File:        {image_path.name}")
-    print(f" PKI Mode:          {stats['mode']}")
-    print("-" * 65)
-    print(f" QR Version:        {stats['version']} (Estimated)")
-    print(f" Error Correction:  N/A (Hidden by Reader)")
-    print(f" Encoding:          Base64")
-    print(f" Compression:       {'YES (ZLIB)' if stats['compressed'] else 'NO'}")
-    print(f" Payload Size:      {stats['final_size']} bytes (Decompressed)")
-    print(f" Structure Size:    {stats['raw_size']} bytes (Compressed/CBOR)")
-    print("="*65)
 
 def main():
     parser = argparse.ArgumentParser(description="Secure QR Code Reader (Dual Mode)")
     parser.add_argument("--image", required=True, help="Path to the QR code image")
-    
-    # We rename this internally since it can be either a root directory or a specific file
-    parser.add_argument("--trusted-dir", required=True, dest="root_pub", help="Path to Trusted Root CA Public Key(s) or Directory")
-    
-    parser.add_argument("--debug", action="store_true", help="Enable full debug output (no truncation)")
-    
+    parser.add_argument("--trusted-dir", required=True, dest="trusted",
+                        help="Trusted Root CA public key (.pem) or a directory of Root *.pem keys")
+    parser.add_argument("--require-chain", action="store_true",
+                        help="Accept only Root+App codes (reject Root-Only codes)")
+    parser.add_argument("--legacy-v1", action="store_true",
+                        help="Verify codes produced by the v1 tools (no domain separation), e.g. the paper's figures")
+    parser.add_argument("--show-untrusted", action="store_true",
+                        help="Print the payload even if verification fails (clearly marked as UNTRUSTED)")
+    parser.add_argument("--debug", action="store_true", help="Show full data dumps")
     args = parser.parse_args()
-    
-    scan_qr(Path(args.image), Path(args.root_pub), debug=args.debug)
+
+    try:
+        roots = core.load_trusted_roots(Path(args.trusted))
+    except Exception as e:
+        print(f"{Color.RED}[ERROR] {e}{Color.RESET}")
+        sys.exit(1)
+    print(f"Loaded {len(roots)} trusted root key(s).")
+
+    image = Path(args.image)
+    print(f"Scanning image: {image.name} ...")
+    try:
+        text, version = core.decode_image(image)
+    except Exception as e:
+        print(f"{Color.RED}[ERROR] {e}{Color.RESET}")
+        sys.exit(1)
+    if args.debug:
+        print_debug("Step 1: Raw QR Text (Base64)", text, is_text=True)
+
+    try:
+        container, stats = core.decode_text(text)
+    except core.SecureQRError as e:
+        print(f"{Color.RED}[FATAL] Rejected before verification: {e}{Color.RESET}")
+        sys.exit(2)
+    print(f"Compression:       {'ZLIB (Decompressed)' if stats['compressed'] else 'NONE'}")
+    print("Format:            VALID CBOR (schema checked)")
+
+    payload = container["payload"]
+    print(f"\n{Color.CYAN}--- STARTING SECURITY VERIFICATION ---{Color.RESET}")
+    if "cert" in container:
+        cert = container["cert"]
+        print(f"\n{Color.YELLOW}[Certificate & Authorization Details - Mode: {core.MODE_CHAIN}]{Color.RESET}")
+        print(f"   Issuer (iss):          {cert['iss']}")
+        print(f"   Subject (sub):         {cert['sub']}")
+        print(f"   Valid From (nbf):      {cert.get('nbf', 'N/A (No start date)')}")
+        print(f"   Expires (exp):         {cert.get('exp', 'N/A (missing - will be rejected)')}")
+        print("   -----------------------")
+        print(f"   Payload Size:          {len(payload)} bytes")
+        print(f"   Payload Signature:     {len(container['payload_sig'])} bytes (Ed25519)")
+        print(f"   Certificate Signature: {len(container['cert_sig'])} bytes (Ed25519)\n")
+    else:
+        print(f"\n{Color.YELLOW}[Direct Trust Details - Mode: {core.MODE_ROOT}]{Color.RESET}")
+        print(f"   Payload Size:          {len(payload)} bytes")
+        print(f"   Payload Signature:     {len(container['payload_sig'])} bytes (Ed25519)\n")
+    if args.legacy_v1:
+        print(f"{Color.YELLOW}[LEGACY] Verifying with v1 rules (no domain separation).{Color.RESET}")
+
+    result = core.verify_container(container, roots, require_chain=args.require_chain,
+                                   legacy_v1=args.legacy_v1)
+    for i, (label, ok) in enumerate(result.checks, 1):
+        mark = f"{Color.GREEN}[OK]" if ok else f"{Color.RED}[FAIL]"
+        print(f"{i}. {label}\n   {mark}{Color.RESET}")
+
+    print("-" * 50)
+    if result.ok:
+        print(f"{Color.GREEN}SUCCESS: DATA VERIFIED AND SECURE{Color.RESET}")
+    else:
+        print(f"{Color.RED}SECURITY WARNING: VERIFICATION FAILED{Color.RESET}")
+        print(f"Reason: {result.reason}")
+        if not args.show_untrusted:
+            print("Payload not displayed (use --show-untrusted to print it anyway).")
+            sys.exit(2)
+
+    print("\n" + "=" * 30)
+    print("      PAYLOAD CONTENT" + ("" if result.ok else " (UNTRUSTED)"))
+    print("=" * 30)
+    try:
+        print(payload.decode("utf-8"))
+    except UnicodeDecodeError:
+        print(f"[Binary Data] Hex: {payload.hex()}")
+    print("=" * 30 + "\n")
+    if "cert" in container:
+        print(f"Issued to (Subject): {container['cert']['sub']}")
+
+    print("\n" + "=" * 65)
+    print(" READING SUMMARY")
+    print("=" * 65)
+    print(f" Input File:        {image.name}")
+    print(f" PKI Mode:          {result.mode}")
+    print("-" * 65)
+    print(f" QR Version:        {version if version else 'Unknown'} (Estimated)")
+    print(" Error Correction:  N/A (Hidden by Reader)")
+    print(" Encoding:          Base64")
+    print(f" Compression:       {'YES (ZLIB)' if stats['compressed'] else 'NO'}")
+    print(f" Payload Size:      {stats['payload']} bytes")
+    print(f" CBOR Size:         {stats['cbor']} bytes (decompressed container)")
+    print(f" Encoded Size:      {stats['encoded']} bytes (after Base64 decoding)")
+    print("=" * 65)
+    sys.exit(0 if result.ok else 2)
+
 
 if __name__ == "__main__":
     main()

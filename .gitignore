@@ -1,21 +1,39 @@
-# --- Foldery tymczasowe i wyjściowe ---
-temp/
+# --- Keys and certificates: never commit ---
+certs_vault/
+cert_vault/
 cert_valut/
-test_qr_images/
-qr_img/
-documentation/
-
-# --- Rozszerzenia plików do ignorowania ---
-*.vscode
-*.keys
-*.key
+bench_cert_vault/
 *.pem
-*.bin
-*.png
-*.SVG
-*.txt
+*.key
+*.keys
 *.cbor
 
-# Opcjonalnie: ignoruj systemowe pliki (np. Mac/Windows)
+# --- Generated output ---
+temp/
+test_qr_images/
+bench_test_qr_images/
+test_benchmark_qrs/
+1.test_benchmark_qrs/
+benchmark_full_pipeline/
+paper_run/
+qr_img/
+documentation/
+*.png
+*.SVG
+*.bin
+*.json
+
+# --- Text files: only the listed ones are tracked ---
+*.txt
+!requirements.txt
+!scanner/payload.txt
+
+# --- Python / editors / OS ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+.vscode/
+*.vscode
 .DS_Store
 Thumbs.db
