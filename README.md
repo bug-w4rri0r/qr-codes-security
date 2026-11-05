@@ -71,10 +71,15 @@ git clone https://github.com/bug-w4rri0r/qr-codes-security.git
 cd qr-codes-security
 ```
 ```bash
-git switch v2
+git switch v2.0.0
 ```
 
 All later commands are run from this repository folder.
+
+| Branch | Content |
+|---|---|
+| `v2.0.0` | this version: paper-aligned toolchain, tests, benchmarks, reproduction script |
+| `v1.0.0` | the original v1 code (snapshot of `main` before v2), used for the figures in the paper |
 
 ---
 
