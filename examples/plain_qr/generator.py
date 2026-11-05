@@ -9,8 +9,8 @@ the input from a text argument or from a file. It always writes a PNG image
 and a companion raw bytes file (.png.bin) into a folder named `qr_img`.
 
 Usage examples:
-  python scanner/generator.py --text "Hello"              # text input
-  python scanner/generator.py --input-file data.bin        # binary file input
+  python examples/plain_qr/generator.py --text "Hello"              # text input
+  python examples/plain_qr/generator.py --input-file data.bin        # binary file input
 
 Notes:
 - When input is read from file, the script encodes data in binary mode.
@@ -45,11 +45,12 @@ def choose_best_qr(data: Union[str, bytes]) -> Tuple[segno.QRCode, str]:
     for ec in ERROR_LEVELS:
         try:
             # If data is bytes, request binary encoding; otherwise let segno
-            # choose the appropriate textual encoding.
+            # choose the appropriate textual encoding. make_qr never returns a
+            # Micro QR (whose version is a string such as "M3").
             if isinstance(data, (bytes, bytearray)):
-                qr = segno.make(data, error=ec, encoding="binary")
+                qr = segno.make_qr(data, error=ec, encoding="binary")
             else:
-                qr = segno.make(data, error=ec)
+                qr = segno.make_qr(data, error=ec)
         except Exception:
             # segno may raise if it cannot encode using given options
             continue

@@ -9,36 +9,43 @@ bench_cert_vault/
 *.cbor
 
 # --- Generated output ---
-temp/
 test_qr_images/
-bench_test_qr_images/
-test_benchmark_qrs/
-1.test_benchmark_qrs/
-benchmark_full_pipeline/
+qr_img/
 paper_run/
 e2e_run/
-qr_img/
-documentation/
 *.png
 *.SVG
 *.bin
 *.json
 
+# --- Local working folders of the v1 era (not part of the repository) ---
+temp/
+documentation/
+benchmark_full_pipeline/
+bench_test_qr_images/
+test_benchmark_qrs/
+1.test_benchmark_qrs/
+full-scripts.txt
+qr-test.py
+
 # --- Text files: only the listed ones are tracked ---
 *.txt
 !requirements.txt
-!scanner/payload.txt
+!examples/*.txt
 
-# --- Local only (not published for now) ---
-qr-test.py
-.github/
-
-# --- Python / editors / OS ---
-__pycache__/
-*.pyc
-.venv/
-venv/
+# --- Local editor / assistant settings (not published for now) ---
+.github/copilot-instructions.md
+.github/instructions/
 .vscode/
 *.vscode
+
+# --- Python / build / OS ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
 .DS_Store
 Thumbs.db

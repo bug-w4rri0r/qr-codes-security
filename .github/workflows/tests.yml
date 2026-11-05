@@ -1,0 +1,34 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: System libraries for OpenCV (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgl1 libglib2.0-0
+      - name: Install
+        run: python -m pip install -r requirements.txt
+      - name: Unit and CLI tests
+        run: python -m unittest discover -s tests -v
+      - name: Reproduce the paper's scenarios
+        run: python reproduce_paper.py
+      - name: End-to-end pipeline with attack cases
+        run: python scripts/e2e_pipeline.py --count 3 --negative
+      - name: Package build and console scripts
+        run: |
+          python -m pip install .
+          secureqr-read --version

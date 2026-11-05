@@ -139,18 +139,37 @@ install the system library (`sudo apt install libgl1 libglib2.0-0` on Debian/Ubu
 
 To leave the environment later: `deactivate`. To use it again, run only the activation command.
 
+### Optional: install as a package
+
+The scripts in the repository work without installation. To get the tools as commands available
+from any folder, install the package into the environment:
+
+```bash
+python -m pip install .
+```
+
+| Script in the repository | Installed command |
+|---|---|
+| `python qr-create.py` | `secureqr-create` |
+| `python qr-read.py` | `secureqr-read` |
+| `python cert_gen/gen_ed_keys.py` | `secureqr-keygen` |
+| `python cert_gen/create_cose_cert.py` | `secureqr-issue-cert` |
+| `python cert_gen/show_cert.py` | `secureqr-show-cert` |
+
+Both forms take the same options. This README uses the script form, as in the paper.
+
 ---
 
 ## 4. Check that everything works (5 minutes)
 
 Three commands verify the whole toolchain. Each must end with the line shown.
 
-**1. Unit and command-line tests** (34 tests, about 15 s):
+**1. Unit and command-line tests** (35 tests, about 20 s):
 ```bash
 python -m unittest discover -s tests
 ```
 ```
-Ran 34 tests in 12.421s
+Ran 35 tests in 18.991s
 OK
 ```
 
@@ -180,7 +199,7 @@ two between runs; everything else is deterministic. `--workdir paper_run` keeps 
 
 **3. End-to-end run with attack cases**:
 ```bash
-python benchmarks/e2e_cli_pipeline.py --count 10 --negative
+python scripts/e2e_pipeline.py --count 10 --negative
 ```
 ```
  Positive cases: 10/10 verified and matched
@@ -407,7 +426,7 @@ python qr-read.py --image ./test_qr_images/parking.png --trusted-dir ./trusted_r
 
 **Payload from a file** (any bytes; text is shown as text, binary as hex)
 ```bash
-python qr-create.py --payload ./scanner/payload.txt --file --root-priv ./certs_vault/PWr-Campus_priv.pem --out ./test_qr_images/from_file
+python qr-create.py --payload ./examples/payload.txt --file --root-priv ./certs_vault/PWr-Campus_priv.pem --out ./test_qr_images/from_file
 ```
 
 **More robust code** (error correction at least Q; larger code, survives more damage)
@@ -531,24 +550,26 @@ subject, validity) and all sizes in their summary.
 
 ## 10. End-to-end pipeline: X codes with a full report
 
-`benchmarks/e2e_cli_pipeline.py` builds a fresh PKI, generates the codes with `qr-create.py`, reads
+`scripts/e2e_pipeline.py` builds a fresh PKI, generates the codes with `qr-create.py`, reads
 every image with `qr-read.py` and reports for each code what was **created** (payload, image file,
 QR version and size, ECC level, CBOR → ZLIB → Base64 sizes) and what was **read** (PKI mode,
 certificate, each verification step, decoded payload, match, exit code), then a summary table.
 
 **10 random ticket URLs, keep images and report:**
 ```bash
-python benchmarks/e2e_cli_pipeline.py --count 10 --workdir e2e_run
+python scripts/e2e_pipeline.py --count 10 --workdir e2e_run
 ```
 
-**Your own payloads** – a text file with one payload per line:
+**Your own payloads** – a text file with one payload per line, e.g. the provided
+[`examples/payloads.txt`](examples/payloads.txt):
 ```
 https://wroclaw.pl/parking/strefa-A/12
 Bilet nr 2026-000123
 Access to laboratory W4N-K34 granted.
+...
 ```
 ```bash
-python benchmarks/e2e_cli_pipeline.py --payloads my_payloads.txt --negative --workdir e2e_run
+python scripts/e2e_pipeline.py --payloads examples/payloads.txt --negative --workdir e2e_run
 ```
 ```
 [CREATE 01] OK  test_qr_images/case_01.png
@@ -625,7 +646,7 @@ The scripts that produced the numbers in the paper are archived unchanged in
 python -m unittest discover -s tests -v
 ```
 
-34 tests, standard library only: valid codes in both modes; tampered payloads and certificates;
+35 tests, standard library only: valid codes in both modes; tampered payloads and certificates;
 expired and not-yet-valid certificates; missing or malformed dates; wrong algorithm; downgrade
 attempts and signature reuse across contexts; malformed CBOR, invalid Base64 and a ZLIB
 decompression bomb; deterministic certificate encoding; the container sizes from the paper; v1
@@ -669,7 +690,7 @@ compatibility; end-to-end command-line runs with real PNG files and exit codes.
 | Root + App QR | `python qr-create.py --payload "TEXT" --app-priv ./certs_vault/app_priv.pem --cert-cbor ./certs_vault/cert_W4N_K34.cbor --out ./test_qr_images/NAME` |
 | Read QR | `python qr-read.py --image ./test_qr_images/NAME.png --trusted-dir ./trusted_roots/` |
 | Debug | add `--debug` to `qr-create.py` / `qr-read.py` |
-| X codes with report | `python benchmarks/e2e_cli_pipeline.py --count 10 --negative --workdir e2e_run` |
+| X codes with report | `python scripts/e2e_pipeline.py --count 10 --negative --workdir e2e_run` |
 | Benchmarks | `python benchmarks/benchmark_crypto.py`, `python benchmarks/benchmark_pipeline.py` |
 
 ---
@@ -694,7 +715,8 @@ between the paper's threat model and the v1 code (details in [CHANGELOG.md](CHAN
 | Reading | classic OpenCV detector misses some dense codes (≈7% of version 13–14 codes in our tests) | falls back to `cv2.QRCodeDetectorAruco` |
 | Keys | unencrypted, could be overwritten silently | optional encryption via `SQR_KEY_PASSPHRASE`; no overwrite without `--force`; App key must match the certificate |
 | Debug / reporting | byte dumps only | full dumps incl. the exact signed bytes; payload and certificate in every summary; `show_cert.py`; per-code pipeline report |
-| Reproducibility | no requirements file (ignored by `.gitignore`), output folder not created, README commands differed from the paper, no benchmark code | pinned `requirements.txt` (verified in a fresh environment), folders created automatically, paper-aligned commands, `reproduce_paper.py`, benchmarks, tests |
+| Reproducibility | no requirements file (ignored by `.gitignore`), output folder not created, README commands differed from the paper, no benchmark code | pinned `requirements.txt` (verified in a fresh environment), folders created automatically, paper-aligned commands, `reproduce_paper.py`, benchmarks, tests, CI on Linux and Windows |
+| Project structure | flat scripts with copied helpers and `sys.path` changes | `secureqr` package with thin entry scripts (same commands as in the paper), `pyproject.toml` with console commands, `CITATION.cff` |
 
 **Compatibility:** v1 codes (including the figures in the paper) fail under v2 rules by design.
 They can still be verified with `qr-read.py --legacy-v1`. Certificates issued by the v1
@@ -746,28 +768,36 @@ text) and is **COSE-inspired**, but the container is not a COSE_Sign1 message.
 
 ```text
 .
-├── qr-create.py              # generator (Root-Only / Root + App)
-├── qr-read.py                # reader and verifier
-├── sqr_core.py               # shared format, signing and verification code
-├── sqr_debug.py              # --debug output shared by both tools
-├── reproduce_paper.py        # one-command reproduction of the paper's scenarios
-├── requirements.txt          # pinned dependencies
-├── CHANGELOG.md
-├── cert_gen/
-│   ├── gen_ed_keys.py        # Ed25519 key pairs
-│   ├── create_cose_cert.py   # lightweight CBOR certificates
-│   └── show_cert.py          # show and check a certificate
+├── secureqr/                    # the package: all logic lives here
+│   ├── __init__.py              # version
+│   ├── core.py                  # format, signing, decoding, verification
+│   ├── debug.py                 # --debug output
+│   └── cli/                     # command-line tools (each module has main())
+│       ├── create.py  read.py   # QR generator / reader
+│       ├── keygen.py            # Ed25519 key pairs
+│       ├── issue_cert.py        # lightweight CBOR certificates
+│       └── show_cert.py         # show and check a certificate
+├── qr-create.py, qr-read.py     # entry scripts used in the paper (call secureqr.cli)
+├── cert_gen/                    # entry scripts: gen_ed_keys.py, create_cose_cert.py, show_cert.py
+├── reproduce_paper.py           # one-command reproduction of the paper's scenarios
+├── scripts/e2e_pipeline.py      # X codes through the CLI with a full report
 ├── benchmarks/
-│   ├── benchmark_crypto.py   # raw Ed25519 sign / verify
-│   ├── benchmark_pipeline.py # full generation / verification pipeline
-│   ├── e2e_cli_pipeline.py   # X codes through the CLI with a full report
-│   ├── env_info.py           # environment report for benchmarks
-│   └── paper_v1/             # scripts used for the paper, unchanged
-├── tests/test_secure_qr.py   # unittest suite (34 tests)
-├── scanner/                  # minimal plain QR generator / OpenCV scanner (no cryptography)
-├── trusted_roots/            # reader trust store: Root public keys only
-└── certs_vault/              # keys and certificates (created locally, never committed)
+│   ├── benchmark_crypto.py      # raw Ed25519 sign / verify
+│   ├── benchmark_pipeline.py    # full generation / verification pipeline
+│   ├── env_info.py              # environment report
+│   └── paper_v1/                # scripts used for the paper, archived unchanged
+├── tests/test_secure_qr.py      # unittest suite (35 tests)
+├── examples/                    # sample payloads, unsigned plain-QR baseline (plain_qr/)
+├── trusted_roots/               # reader trust store: Root public keys only
+├── certs_vault/                 # keys and certificates (created locally, never committed)
+├── pyproject.toml               # package metadata, dependencies, console commands
+├── requirements.txt             # exact versions for reproduction
+├── .github/workflows/tests.yml  # CI: tests, reproduction, pipeline on Linux and Windows
+├── CHANGELOG.md, CITATION.cff, LICENSE
 ```
+
+Design rules: logic only in `secureqr/`; entry scripts contain no logic; tools, benchmarks and tests
+use the same `secureqr.core` functions; keys and generated files never enter the repository.
 
 ---
 

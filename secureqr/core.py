@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
 """
 Secure QR Codes - shared core (format v2).
 
-Used by qr-create.py, qr-read.py, cert_gen/*, benchmarks/ and tests/ so that
-the command-line tools, the benchmarks and the tests exercise exactly the same
-code path.
+Used by the command-line tools (secureqr.cli), benchmarks/ and tests/ so that
+the tools, the benchmarks and the tests exercise exactly the same code path.
 
 Data flow (as described in the paper):
     payload -> Ed25519 signature -> CBOR container -> ZLIB -> Base64 -> QR

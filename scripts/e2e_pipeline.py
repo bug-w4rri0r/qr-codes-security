@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 End-to-end CLI pipeline: generate X QR codes, read them back, report everything.
-(v2 successor of paper_v1/pprod_test_2tier_pipeline.py)
+(v2 successor of benchmarks/paper_v1/pprod_test_2tier_pipeline.py)
 
 For every code it shows what was created (payload, image file, QR version, ECC
 level, CBOR / ZLIB / Base64 sizes) and what was read (PKI mode, certificate,
@@ -9,10 +9,10 @@ each verification step, decoded payload, match, exit code), then a summary table
 and a JSON report. Optional negative cases check that attacks are rejected.
 
 Examples:
-  py benchmarks/e2e_cli_pipeline.py --count 10
-  py benchmarks/e2e_cli_pipeline.py --count 10 --mode root --workdir e2e_run
-  py benchmarks/e2e_cli_pipeline.py --payloads my_payloads.txt --negative --workdir e2e_run
-  py benchmarks/e2e_cli_pipeline.py --count 3 --debug          # full tool output incl. byte dumps
+  python scripts/e2e_pipeline.py --count 10
+  python scripts/e2e_pipeline.py --count 10 --mode root --workdir e2e_run
+  python scripts/e2e_pipeline.py --payloads examples/payloads.txt --negative --workdir e2e_run
+  python scripts/e2e_pipeline.py --count 3 --debug          # full tool output incl. byte dumps
 """
 
 import argparse
@@ -28,16 +28,16 @@ import tempfile
 import time
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
-TOOLS = ("qr-create.py", "qr-read.py", "sqr_core.py", "sqr_debug.py")
+REPO = Path(__file__).resolve().parents[1]
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def run(cmd, cwd, debug=False):
+    """Runs a repository script (cmd[0], relative to the repository) with cwd as working directory."""
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     t0 = time.perf_counter()
-    r = subprocess.run([sys.executable, *cmd], cwd=cwd, capture_output=True, text=True,
-                       encoding="utf-8", env=env)
+    r = subprocess.run([sys.executable, str(REPO / cmd[0]), *cmd[1:]], cwd=cwd, capture_output=True,
+                       text=True, encoding="utf-8", env=env)
     ms = 1000 * (time.perf_counter() - t0)
     out = ANSI.sub("", r.stdout)
     if debug:
@@ -89,9 +89,6 @@ def random_payloads(count):
 
 
 def setup_pki(w, debug):
-    for f in TOOLS:
-        shutil.copy(REPO / f, w / f)
-    shutil.copytree(REPO / "cert_gen", w / "cert_gen", dirs_exist_ok=True)
     (w / "trusted_roots").mkdir(exist_ok=True)
     must(["cert_gen/gen_ed_keys.py", "--root-name", "Global_Mobility_Root", "--app-name", "Wroclaw_Transit_Auth",
           "--out-dir", "certs_vault", "--force"], w, debug)

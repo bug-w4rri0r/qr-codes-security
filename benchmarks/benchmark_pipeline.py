@@ -6,7 +6,7 @@ Generation:   sign + CBOR + ZLIB + Base64 + QR + PNG file
 Verification: PNG file + OpenCV decoding + Base64 + ZLIB + CBOR schema + signature checks
 
 Runs in-process with the same functions as qr-create.py / qr-read.py
-(sqr_core), so interpreter start-up is not included. Defaults follow the
+(secureqr.core), so interpreter start-up is not included. Defaults follow the
 configuration of the paper run (Root-Only, ECC H, 3 px per module, 1000
 iterations); --mode chain measures the Root+App certificate chain (8 px per
 module by default, as written by qr-create.py).
@@ -21,11 +21,12 @@ import tempfile
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repository root: works without installation
+
 from cryptography.hazmat.primitives.asymmetric import ed25519  # noqa: E402
 
-import sqr_core as core  # noqa: E402
 from env_info import environment  # noqa: E402
+from secureqr import core  # noqa: E402
 
 
 def main():

@@ -29,7 +29,7 @@ v1 structure and sizes (Scenario 1: QR v8, CBOR 128 B; Scenario 2: QR v13, CBOR 
 ### Debug and reporting
 - `--debug` in both tools dumps every stage in full (Base64, ZLIB, CBOR, container fields, the exact
   bytes covered by each signature); the summaries always show the payload and the certificate.
-- `benchmarks/e2e_cli_pipeline.py`: per-code report of what was created and read, summary table,
+- `scripts/e2e_pipeline.py`: per-code report of what was created and read, summary table,
   `report.json`, own payloads (`--payloads`, UTF-8 BOM ignored), negative attack cases (`--negative`).
 - `cert_gen/show_cert.py`: shows a certificate and checks its Root signature and validity window.
 - `qr-read.py` usage errors exit with 1, so exit code 2 always means "verification failed".
@@ -38,12 +38,23 @@ v1 structure and sizes (Scenario 1: QR v8, CBOR 128 B; Scenario 2: QR v13, CBOR 
 - `reproduce_paper.py`: runs both scenarios of the paper and compares the results.
 - `benchmarks/`: raw Ed25519 and full-pipeline benchmarks (perf_counter, environment report,
   JSON output), end-to-end CLI run; original paper scripts archived in `benchmarks/paper_v1/`.
-- `tests/`: 34 unittest cases (standard library only).
+- `tests/`: 35 unittest cases (standard library only).
 - `requirements.txt` with pinned versions, verified by a clean install in a fresh virtual environment
   (opencv-python 4.14.0.94 + numpy 2.3.5; 4.12 requires numpy < 2.3, which has no Python 3.14 wheel);
   `.gitignore` no longer hides it.
 - README rewritten as a step-by-step guide (environment per OS, PKI file roles, both scenarios with
   real output, examples, troubleshooting, cheat sheet); commands, payloads and dates match the paper.
+
+### Project structure
+- All logic moved into the `secureqr` package (`core`, `debug`, `cli/*`); `qr-create.py`,
+  `qr-read.py` and `cert_gen/*.py` are thin entry scripts, so the commands used in the paper are
+  unchanged. No more `sys.path` manipulation outside the entry scripts.
+- `pyproject.toml`: installable package (`pip install .`) with console commands `secureqr-create`,
+  `secureqr-read`, `secureqr-keygen`, `secureqr-issue-cert`, `secureqr-show-cert`; `--version` in all tools.
+- `scripts/e2e_pipeline.py` (was `benchmarks/e2e_cli_pipeline.py`); `examples/` with sample payloads
+  and the unsigned plain-QR baseline (was `scanner/`); duplicate `how_to_run.md` files removed.
+- Runner scripts call the repository tools directly instead of copying them into work folders.
+- GitHub Actions CI (Linux and Windows, Python 3.11–3.14), `CITATION.cff`, `.gitattributes`.
 
 ### Incompatible
 - v2 readers reject v1 codes unless `--legacy-v1`; v1 certificates must be re-issued.

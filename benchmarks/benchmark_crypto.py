@@ -12,14 +12,12 @@ Usage: py benchmarks/benchmark_crypto.py [--iterations 1000] [--repeats 5] [--js
 import argparse
 import json
 import statistics
-import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from cryptography.hazmat.primitives.asymmetric import ed25519  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
-from env_info import environment  # noqa: E402
+from env_info import environment
 
 MESSAGE = b"Przykladowy payload z certyfikatem CBOR o rozmiarze okolo 100 bajtow"  # same as the paper run
 

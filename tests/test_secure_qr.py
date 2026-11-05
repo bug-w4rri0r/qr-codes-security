@@ -1,7 +1,7 @@
 """
-Tests for the Secure QR toolchain (v2). Standard library only:
+Tests for the Secure QR toolchain (v2). Standard library only; run from the repository root:
 
-    py -m unittest discover -s tests -v
+    python -m unittest discover -s tests -v
 
 Each test maps to a claim of the paper's threat model or to a reviewer concern.
 """
@@ -18,9 +18,9 @@ from pathlib import Path
 import cbor2
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT_DIR))
-import sqr_core as core  # noqa: E402
+from secureqr import __version__, core
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
 
 NOW = core.parse_time("2026-06-01")
 
@@ -291,6 +291,11 @@ class CommandLine(unittest.TestCase):
 
     def test_reader_usage_error_is_exit_1(self):
         self.cli(["qr-read.py", "--trusted-dir", str(self.dir / "trusted")], expect=1)
+
+    def test_entry_scripts_report_version(self):
+        for script in ("qr-create.py", "qr-read.py", "cert_gen/gen_ed_keys.py",
+                       "cert_gen/create_cose_cert.py", "cert_gen/show_cert.py"):
+            self.assertIn(__version__, self.cli([script, "--version"]))
 
 
 if __name__ == "__main__":

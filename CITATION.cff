@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper and this repository."
+title: "secureqr: Ed25519-signed QR codes with lightweight CBOR certificates"
+version: 2.0.0
+license: MIT
+repository-code: "https://github.com/bug-w4rri0r/qr-codes-security"
+authors:
+  - family-names: Jonderko
+    given-names: Wojciech
+    orcid: "https://orcid.org/0009-0007-8205-2670"
+    affiliation: "Wrocław University of Science and Technology"
+  - family-names: Wodo
+    given-names: Wojciech
+    orcid: "https://orcid.org/0000-0002-0237-2882"
+    affiliation: "Wrocław University of Science and Technology"
+preferred-citation:
+  type: article
+  title: "Secure QR Codes: Authenticity Verification via EdDSA Signatures and CBOR Certificates"
+  authors:
+    - family-names: Jonderko
+      given-names: Wojciech
+      orcid: "https://orcid.org/0009-0007-8205-2670"
+    - family-names: Wodo
+      given-names: Wojciech
+      orcid: "https://orcid.org/0000-0002-0237-2882"

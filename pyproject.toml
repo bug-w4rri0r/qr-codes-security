@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secureqr"
+dynamic = ["version"]
+description = "Ed25519-signed QR codes with lightweight CBOR certificates (reference implementation of the Secure QR Codes paper)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Wojciech Jonderko", email = "wojciech.jonderko@pwr.edu.pl" },
+    { name = "Wojciech Wodo", email = "wojciech.wodo@pwr.edu.pl" },
+]
+keywords = ["QR code", "Ed25519", "EdDSA", "CBOR", "digital signature", "PKI", "quishing"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Security :: Cryptography",
+]
+# Compatible ranges; requirements.txt pins the exact versions used for the paper reproduction.
+dependencies = [
+    "cbor2>=5.6",
+    "cryptography>=42",
+    "segno>=1.6",
+    "opencv-python>=4.8",   # 4.8+ for cv2.QRCodeDetectorAruco
+    "numpy>=1.26",
+]
+
+[project.urls]
+Repository = "https://github.com/bug-w4rri0r/qr-codes-security"
+
+[project.scripts]
+secureqr-create = "secureqr.cli.create:main"
+secureqr-read = "secureqr.cli.read:main"
+secureqr-keygen = "secureqr.cli.keygen:main"
+secureqr-issue-cert = "secureqr.cli.issue_cert:main"
+secureqr-show-cert = "secureqr.cli.show_cert:main"
+
+[tool.setuptools]
+packages = ["secureqr", "secureqr.cli"]
+
+[tool.setuptools.dynamic]
+version = { attr = "secureqr.__version__" }

@@ -1,0 +1,5 @@
+https://wroclaw.pl/parking/strefa-A/12
+Bilet nr 2026-000123
+Access to laboratory W4N-K34 granted.
+Welcome to the PWrcampus (Direct Mode)!
+https://api.mobility.wroclaw.pl/v1/verify-ticket?tkt=EXAMPLE0001&ts=1767225600

@@ -36,9 +36,10 @@ PAYLOAD_2 = "Access to laboratory W4N-K34 granted."
 
 
 def run(args, cwd, expect=0):
+    """Runs a repository script (args[0], relative to the repository) with cwd as working directory."""
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
-    r = subprocess.run([sys.executable, *args], cwd=cwd, capture_output=True, text=True,
-                       encoding="utf-8", env=env)
+    r = subprocess.run([sys.executable, str(HERE / args[0]), *args[1:]], cwd=cwd, capture_output=True,
+                       text=True, encoding="utf-8", env=env)
     if r.returncode != expect:
         print(r.stdout)
         print(r.stderr)
@@ -59,9 +60,6 @@ def main():
 
     work = Path(a.workdir) if a.workdir else Path(tempfile.mkdtemp(prefix="secure-qr-"))
     work.mkdir(parents=True, exist_ok=True)
-    for name in ("qr-create.py", "qr-read.py", "sqr_core.py", "sqr_debug.py"):
-        shutil.copy(HERE / name, work / name)
-    shutil.copytree(HERE / "cert_gen", work / "cert_gen", dirs_exist_ok=True)
     vault, trusted, images = work / "certs_vault", work / "trusted_roots", work / "test_qr_images"
     trusted.mkdir(exist_ok=True)
     print(f"Working directory: {work}\n")

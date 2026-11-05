@@ -1,5 +1,5 @@
 """
-Debug output shared by qr-create.py and qr-read.py (--debug).
+Debug output shared by the create and read tools (--debug).
 
 Prints every byte, without truncation, so each stage of the pipeline
 (payload -> signature -> CBOR -> ZLIB -> Base64 -> QR) can be inspected.

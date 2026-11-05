@@ -6,7 +6,7 @@ This script reads a PNG file containing a QR code and attempts to decode it
 using OpenCV. It prints the decoded content to stdout.
 
 Usage examples:
-  python scanner/scanner.py --image qr_img/basic_qr_test1.png
+  python examples/plain_qr/scanner.py --image qr_img/basic_qr_test1.png
 """
 
 import argparse
